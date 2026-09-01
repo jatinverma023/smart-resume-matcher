@@ -29,3 +29,6 @@ coverage/
 # Temporary files
 tmp/
 temp/
+
+# Uploaded resume files
+server/uploads/

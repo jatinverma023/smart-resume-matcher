@@ -1,44 +1,95 @@
-import { useEffect, useState } from 'react';
-import { checkHealth } from './api/api';
+import { useAuth } from './context/AuthContext';
+
+import Login from './pages/Login';
+import Register from './pages/Register';
+import CandidateDashboard from './pages/CandidateDashboard';
+import RecruiterDashboard from './pages/RecruiterDashboard';
+import Jobs from './pages/Jobs';
+import JobDetails from './pages/JobDetails';
+import CreateJob from './pages/CreateJob';
+import RecruiterJobs from './pages/RecruiterJobs';
+import ManageJob from './pages/ManageJob';
+import Applications from './pages/Applications';
+import Resumes from './pages/Resumes';
+import Candidates from './pages/Candidates';
 
 function App() {
-  const [status, setStatus] = useState('Checking backend...');
-  const [error, setError] = useState('');
+  const { user, loading } = useAuth();
 
-  useEffect(() => {
-    checkHealth()
-      .then((data) => {
-        setStatus(data.message);
-      })
-      .catch((err) => {
-        setError(err.message);
-        setStatus('');
-      });
-  }, []);
+  const path = window.location.pathname;
 
-  return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-5xl font-bold text-white">
-          Smart Resume Matcher
-        </h1>
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#050814] flex items-center justify-center">
+        <div className="text-center">
+          <div className="mx-auto h-10 w-10 rounded-full border-2 border-slate-700 border-t-blue-500 animate-spin" />
 
-        <div className="mt-6">
-          {status && (
-            <p className="text-green-400">
-              ✓ {status}
-            </p>
-          )}
-
-          {error && (
-            <p className="text-red-400">
-              ✕ {error}
-            </p>
-          )}
+          <p className="mt-4 text-sm text-slate-400">
+            Loading workspace...
+          </p>
         </div>
       </div>
-    </div>
-  );
+    );
+  }
+
+  if (!user) {
+    if (path === '/register') {
+      return <Register />;
+    }
+
+    return <Login />;
+  }
+
+  /*
+   * CANDIDATE ROUTES
+   */
+  if (user.role === 'candidate') {
+    if (path.startsWith('/jobs/')) {
+      return <JobDetails />;
+    }
+
+    if (path === '/jobs') {
+      return <Jobs />;
+    }
+
+    if (path === '/applications') {
+      return <Applications />;
+    }
+    if (path === '/resumes') {
+      return <Resumes />;
+    }
+
+    return <CandidateDashboard />;
+  }
+
+  /*
+   * RECRUITER ROUTES
+   */
+  if (user.role === 'recruiter') {
+
+    if (
+      path.startsWith('/recruiter/jobs/') &&
+      path !== '/recruiter/jobs/create'
+    ) {
+      return <ManageJob />;
+    }
+
+    if (path === '/recruiter/jobs/create') {
+      return <CreateJob />;
+    }
+
+    if (path === '/recruiter/jobs') {
+      return <RecruiterJobs />;
+    }
+
+    if (path === '/candidates') {
+      return <Candidates />;
+    }
+
+    return <RecruiterDashboard />;
+  }
+
+  return <CandidateDashboard />;
 }
 
 export default App;
