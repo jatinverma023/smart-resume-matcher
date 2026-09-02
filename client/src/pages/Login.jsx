@@ -1,4 +1,5 @@
 import { useState } from 'react';
+
 import { useAuth } from '../context/AuthContext';
 
 function Login() {
@@ -31,7 +32,6 @@ function Login() {
 
         try {
             const data = await login(form);
-
             setSuccess(`Welcome back, ${data.user.name}!`);
         } catch (err) {
             setError(err.message);
@@ -41,91 +41,165 @@ function Login() {
     };
 
     return (
-        <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
-            <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-8 shadow-2xl">
-                <div className="mb-8">
-                    <h1 className="text-3xl font-bold text-white">
-                        Welcome back
-                    </h1>
+        <div className="auth-page">
+            <div className="auth-background-orb auth-orb-one" />
+            <div className="auth-background-orb auth-orb-two" />
 
-                    <p className="mt-2 text-slate-400">
-                        Sign in to Smart Resume Matcher
-                    </p>
-                </div>
+            <main className="auth-layout">
+                <section className="auth-brand-panel">
+                    <div className="auth-brand">
+                        <span className="brand-leaf" aria-hidden="true">
+                            <i />
+                            <b />
+                            <em />
+                        </span>
 
-                <form onSubmit={handleSubmit} className="space-y-5">
-                    <div>
-                        <label
-                            htmlFor="email"
-                            className="mb-2 block text-sm font-medium text-slate-300"
-                        >
-                            Email
-                        </label>
-
-                        <input
-                            id="email"
-                            name="email"
-                            type="email"
-                            value={form.email}
-                            onChange={handleChange}
-                            placeholder="you@example.com"
-                            required
-                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-blue-500"
-                        />
+                        <span>
+                            <strong>Smart Resume</strong>
+                            <small>MATCHER</small>
+                        </span>
                     </div>
 
-                    <div>
-                        <label
-                            htmlFor="password"
-                            className="mb-2 block text-sm font-medium text-slate-300"
-                        >
-                            Password
-                        </label>
+                    <div className="auth-brand-content">
+                        <span className="eyebrow-text">
+                            AI-POWERED HIRING
+                        </span>
 
-                        <input
-                            id="password"
-                            name="password"
-                            type="password"
-                            value={form.password}
-                            onChange={handleChange}
-                            placeholder="••••••••"
-                            required
-                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-blue-500"
-                        />
+                        <h1>
+                            Find the right
+                            <br />
+                            <span>match.</span>
+                        </h1>
+
+                        <p>
+                            Connect candidates and opportunities through
+                            intelligent resume-to-job matching.
+                        </p>
                     </div>
 
-                    {error && (
-                        <div className="rounded-lg border border-red-900 bg-red-950/40 px-4 py-3 text-sm text-red-400">
-                            {error}
-                        </div>
-                    )}
+                    <div className="auth-brand-footer">
+                        <span>Resume intelligence</span>
+                        <span>•</span>
+                        <span>Skill matching</span>
+                        <span>•</span>
+                        <span>Hiring workflow</span>
+                    </div>
+                </section>
 
-                    {success && (
-                        <div className="rounded-lg border border-green-900 bg-green-950/40 px-4 py-3 text-sm text-green-400">
-                            {success}
-                        </div>
-                    )}
+                <section className="auth-form-panel">
+                    <div className="auth-form-container">
+                        <div className="auth-mobile-brand">
+                            <span className="brand-leaf" aria-hidden="true">
+                                <i />
+                                <b />
+                                <em />
+                            </span>
 
-                    <button
-                        type="submit"
-                        disabled={loading}
-                        className="w-full rounded-lg bg-blue-600 px-4 py-3 font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                        {loading ? 'Signing in...' : 'Sign in'}
-                    </button>
-                </form>
-                <div className="mt-6 text-center">
-                    <p className="text-sm text-slate-400">
-                        Don't have an account?{' '}
+                            <span>
+                                <strong>Smart Resume</strong>
+                                <small>MATCHER</small>
+                            </span>
+                        </div>
+
+                        <div className="auth-heading">
+                            <span className="eyebrow-text">
+                                WELCOME BACK
+                            </span>
+
+                            <h2>Sign in to your workspace</h2>
+
+                            <p>
+                                Continue managing your applications,
+                                resumes, and opportunities.
+                            </p>
+                        </div>
+
+                        <form
+                            onSubmit={handleSubmit}
+                            className="auth-form"
+                        >
+                            <div className="auth-field">
+                                <label htmlFor="email">Email address</label>
+
+                                <input
+                                    id="email"
+                                    name="email"
+                                    type="email"
+                                    value={form.email}
+                                    onChange={handleChange}
+                                    placeholder="you@example.com"
+                                    autoComplete="email"
+                                    required
+                                />
+                            </div>
+
+                            <div className="auth-field">
+                                <div className="auth-field-label-row">
+                                    <label htmlFor="password">
+                                        Password
+                                    </label>
+                                </div>
+
+                                <input
+                                    id="password"
+                                    name="password"
+                                    type="password"
+                                    value={form.password}
+                                    onChange={handleChange}
+                                    placeholder="Enter your password"
+                                    autoComplete="current-password"
+                                    required
+                                />
+                            </div>
+
+                            {error && (
+                                <div className="auth-message auth-message-error">
+                                    {error}
+                                </div>
+                            )}
+
+                            {success && (
+                                <div className="auth-message auth-message-success">
+                                    {success}
+                                </div>
+                            )}
+
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="auth-submit-button"
+                            >
+                                {loading ? (
+                                    <>
+                                        <span className="auth-button-spinner" />
+                                        Signing in...
+                                    </>
+                                ) : (
+                                    'Sign in →'
+                                )}
+                            </button>
+                        </form>
+
+                        <div className="auth-divider">
+                            <span />
+                            <small>NEW TO SMART RESUME?</small>
+                            <span />
+                        </div>
+
                         <a
                             href="/register"
-                            className="font-medium text-blue-400 hover:text-blue-300"
+                            className="auth-secondary-link"
                         >
-                            Create one
+                            Create an account
                         </a>
-                    </p>
-                </div>
-            </div>
+
+                        <p className="auth-legal">
+                            By continuing, you agree to use the platform
+                            responsibly and securely.
+                        </p>
+                    </div>
+                </section>
+            </main>
         </div>
     );
 }

@@ -1,74 +1,287 @@
 import { useEffect, useMemo, useState } from 'react';
+
 import { useAuth } from '../context/AuthContext';
 
-import { getJobStats } from '../api/jobs';
+import {
+    getJobStats,
+    publishJob,
+} from '../api/jobs';
+
 import {
     getJobApplicants,
     updateApplicationStatus,
 } from '../api/applications';
 
+import {
+    EmptyState,
+    MatchRing,
+    MetricCard,
+    StatusPill,
+    WorkspaceShell,
+} from '../components/WorkspaceShell';
+
+
+function formatDate(date) {
+    if (!date) return '—';
+
+    const parsed = new Date(date);
+
+    if (Number.isNaN(parsed.getTime())) {
+        return '—';
+    }
+
+    return parsed.toLocaleDateString(
+        'en-IN',
+        {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+        }
+    );
+}
+
+
+function getInitials(name = '') {
+    return (
+        name
+            .split(' ')
+            .filter(Boolean)
+            .slice(0, 2)
+            .map((part) => part[0])
+            .join('')
+            .toUpperCase() || 'C'
+    );
+}
+
+
+function getSkillName(skill) {
+    if (typeof skill === 'string') {
+        return skill;
+    }
+
+    return (
+        skill?.name ||
+        skill?.skill ||
+        ''
+    );
+}
+
+
+function formatSkill(skill) {
+    const name = getSkillName(skill);
+
+    if (!name) return '';
+
+    const normalized = name
+        .toLowerCase()
+        .trim()
+        .replace(/[.\s_-]+/g, '');
+
+    const labels = {
+        nodejs: 'Node.js',
+        nextjs: 'Next.js',
+        mongodb: 'MongoDB',
+        mysql: 'MySQL',
+        javascript: 'JavaScript',
+        typescript: 'TypeScript',
+        tailwindcss: 'Tailwind CSS',
+        restapi: 'REST API',
+    };
+
+    return labels[normalized] || name;
+}
+
+
 function ManageJob() {
-    const { user, token } = useAuth();
+    const { token } = useAuth();
 
-    const jobId = window.location.pathname.split('/').pop();
+    const jobId = window.location.pathname
+        .split('/')
+        .pop();
 
-    const [stats, setStats] = useState(null);
-    const [applications, setApplications] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
-    const [updating, setUpdating] = useState(null);
+    const [stats, setStats] =
+        useState(null);
+
+    const [applications, setApplications] =
+        useState([]);
+
+    const [loading, setLoading] =
+        useState(true);
+
+    const [error, setError] =
+        useState('');
+
+    const [updating, setUpdating] =
+        useState(null);
+
+    const [publishing, setPublishing] =
+        useState(false);
+
+    const [publishSuccess, setPublishSuccess] =
+        useState('');
+
+
+    const navigate = (path) => {
+        window.location.href = path;
+    };
+
 
     const loadData = async () => {
+        if (!token || !jobId) {
+            return;
+        }
+
         try {
             setLoading(true);
             setError('');
 
-            const [statsData, applicantsData] =
-                await Promise.all([
-                    getJobStats(token, jobId),
-                    getJobApplicants(token, jobId),
-                ]);
+            const [
+                statsData,
+                applicantsData,
+            ] = await Promise.all([
+                getJobStats(
+                    token,
+                    jobId
+                ),
+
+                getJobApplicants(
+                    token,
+                    jobId
+                ),
+            ]);
 
             setStats(statsData);
-            setApplications(applicantsData.applications || []);
-        } catch (err) {
-            console.error(err);
-            setError(err.message);
+
+            setApplications(
+                applicantsData.applications ||
+                []
+            );
+        } catch (requestError) {
+            console.error(
+                'Manage job error:',
+                requestError
+            );
+
+            setError(
+                requestError.message ||
+                'Unable to load job intelligence.'
+            );
         } finally {
             setLoading(false);
         }
     };
 
+
     useEffect(() => {
-        if (token && jobId) {
-            loadData();
-        }
+        void loadData();
     }, [token, jobId]);
 
+
+    const handlePublishJob = async () => {
+        if (!token || !jobId) {
+            return;
+        }
+
+        try {
+            setPublishing(true);
+            setError('');
+            setPublishSuccess('');
+
+            await publishJob(
+                token,
+                jobId
+            );
+
+            setPublishSuccess(
+                'Job published successfully. Candidates can now discover and apply to this job.'
+            );
+
+            await loadData();
+        } catch (requestError) {
+            console.error(
+                'Publish job error:',
+                requestError
+            );
+
+            setError(
+                requestError.message ||
+                'Unable to publish this job.'
+            );
+        } finally {
+            setPublishing(false);
+        }
+    };
+
+
     const averageMatch = useMemo(() => {
-        if (!applications.length) return 0;
+        if (!applications.length) {
+            return 0;
+        }
 
         const scores = applications
-            .map((application) => application.matchScore)
-            .filter((score) => typeof score === 'number');
+            .map((application) =>
+                Number(
+                    application.matchScore
+                )
+            )
+            .filter(
+                (score) =>
+                    Number.isFinite(score)
+            );
 
-        if (!scores.length) return 0;
+        if (!scores.length) {
+            return 0;
+        }
 
         return Math.round(
-            scores.reduce((sum, score) => sum + score, 0) /
-            scores.length
+            scores.reduce(
+                (sum, score) =>
+                    sum + score,
+                0
+            ) / scores.length
         );
     }, [applications]);
 
-    const shortlistedCount = applications.filter(
-        (application) =>
-            application.status === 'shortlisted'
-    ).length;
 
-    const hiredCount = applications.filter(
-        (application) =>
-            application.status === 'hired'
-    ).length;
+    const shortlistedCount =
+        applications.filter(
+            (application) =>
+                application.status ===
+                'shortlisted'
+        ).length;
+
+
+    const interviewCount =
+        applications.filter(
+            (application) =>
+                application.status ===
+                'interview'
+        ).length;
+
+
+    const hiredCount =
+        applications.filter(
+            (application) =>
+                application.status ===
+                'hired'
+        ).length;
+
+
+    const rejectedCount =
+        applications.filter(
+            (application) =>
+                application.status ===
+                'rejected'
+        ).length;
+
+
+    const appliedCount =
+        applications.filter(
+            (application) =>
+                application.status ===
+                'applied'
+        ).length;
+
 
     const handleStatusChange = async (
         applicationId,
@@ -76,6 +289,7 @@ function ManageJob() {
     ) => {
         try {
             setUpdating(applicationId);
+            setError('');
 
             await updateApplicationStatus(
                 token,
@@ -84,335 +298,579 @@ function ManageJob() {
             );
 
             setApplications((current) =>
-                current.map((application) =>
-                    application._id === applicationId
-                        ? {
-                            ...application,
-                            status,
-                        }
-                        : application
+                current.map(
+                    (application) =>
+                        application._id ===
+                        applicationId
+                            ? {
+                                ...application,
+                                status,
+                            }
+                            : application
                 )
             );
 
             await loadData();
-        } catch (err) {
-            setError(err.message);
+        } catch (requestError) {
+            setError(
+                requestError.message ||
+                'Unable to update application status.'
+            );
         } finally {
             setUpdating(null);
         }
     };
 
+
     if (loading) {
         return (
-            <div className="min-h-screen bg-[#050814] text-white flex items-center justify-center">
-                <div className="text-center">
-                    <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-slate-700 border-t-blue-500" />
+            <WorkspaceShell
+                role="recruiter"
+                title="Manage job"
+                subtitle="Review candidates and manage your hiring pipeline."
+                action={
+                    <button
+                        className="secondary-light-button"
+                        type="button"
+                        onClick={() =>
+                            navigate(
+                                '/recruiter/jobs'
+                            )
+                        }
+                    >
+                        ← Job listings
+                    </button>
+                }
+            >
+                <div className="light-loading-state">
+                    <span
+                        className="light-loading-spinner"
+                        aria-hidden="true"
+                    />
 
-                    <p className="mt-4 text-sm text-slate-500">
-                        Loading hiring intelligence...
+                    <h2>
+                        Loading hiring intelligence
+                    </h2>
+
+                    <p>
+                        Preparing candidates and
+                        match analysis.
                     </p>
                 </div>
-            </div>
+            </WorkspaceShell>
         );
     }
 
+
     if (error && !stats) {
         return (
-            <div className="min-h-screen bg-[#050814] text-white p-10">
-                <div className="mx-auto max-w-4xl rounded-2xl border border-red-500/20 bg-red-500/5 p-6">
-                    <p className="text-red-300">
-                        {error}
-                    </p>
+            <WorkspaceShell
+                role="recruiter"
+                title="Manage job"
+                subtitle="Review candidates and manage your hiring pipeline."
+                action={
+                    <button
+                        className="secondary-light-button"
+                        type="button"
+                        onClick={() =>
+                            navigate(
+                                '/recruiter/jobs'
+                            )
+                        }
+                    >
+                        ← Job listings
+                    </button>
+                }
+            >
+                <div className="light-error-state jobs-state">
+                    <h2>
+                        We could not load this job
+                    </h2>
+
+                    <p>{error}</p>
 
                     <button
-                        onClick={() => {
-                            window.location.href =
-                                '/recruiter/jobs';
-                        }}
-                        className="mt-5 rounded-xl border border-slate-700 px-5 py-3 text-sm"
+                        className="secondary-light-button"
+                        type="button"
+                        onClick={() =>
+                            navigate(
+                                '/recruiter/jobs'
+                            )
+                        }
                     >
                         ← Back to jobs
                     </button>
                 </div>
-            </div>
+            </WorkspaceShell>
         );
     }
 
+
     const job = stats?.job;
 
+    const isDraft =
+        job?.status === 'draft';
+
+    const isOpen =
+        job?.status === 'open';
+
+
     return (
-        <div className="min-h-screen bg-[#050814] text-white">
+        <WorkspaceShell
+            role="recruiter"
+            title={
+                job?.title ||
+                'Manage job'
+            }
+            subtitle={
+                job?.company
+                    ? `${job.company} · Candidate intelligence`
+                    : 'Review candidates and manage your hiring pipeline.'
+            }
+            action={
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                    }}
+                >
+                    <button
+                        className="secondary-light-button"
+                        type="button"
+                        onClick={() =>
+                            navigate(
+                                '/recruiter/jobs'
+                            )
+                        }
+                    >
+                        ← Job listings
+                    </button>
 
-            <div className="flex min-h-screen">
-
-                {/* SIDEBAR */}
-
-                <aside className="hidden w-[272px] shrink-0 border-r border-slate-800/80 bg-[#070b16] lg:flex lg:flex-col">
-
-                    <div className="flex h-[104px] items-center border-b border-slate-800/70 px-8">
+                    {isDraft && (
                         <button
-                            onClick={() => {
-                                window.location.href = '/';
-                            }}
-                            className="flex items-center gap-3"
+                            className="primary-light-button"
+                            type="button"
+                            disabled={publishing}
+                            onClick={
+                                handlePublishJob
+                            }
                         >
-                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 text-lg font-bold shadow-lg shadow-blue-500/20">
-                                S
-                            </div>
-
-                            <div className="text-left">
-                                <p className="text-sm font-bold">
-                                    Smart Resume
-                                </p>
-
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-500">
-                                    Matcher
-                                </p>
-                            </div>
+                            {publishing
+                                ? 'Publishing...'
+                                : 'Publish job →'}
                         </button>
+                    )}
+                </div>
+            }
+        >
+            {error && (
+                <div className="ui-message ui-message-error">
+                    {error}
+                </div>
+            )}
+
+            {publishSuccess && (
+                <div className="ui-message ui-message-success">
+                    {publishSuccess}
+                </div>
+            )}
+
+
+            {/* JOB SUMMARY */}
+
+            <section className="light-panel manage-job-summary">
+
+                <div className="manage-job-summary-main">
+
+                    <div className="manage-company-avatar">
+                        {job?.company
+                            ?.charAt(0)
+                            ?.toUpperCase() ||
+                            'S'}
                     </div>
 
-                    <div className="flex-1 px-4 py-8">
+                    <div>
 
-                        <p className="px-4 text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-600">
-                            Workspace
+                        <span className="eyebrow-text">
+                            CANDIDATE INTELLIGENCE
+                        </span>
+
+                        <h2>
+                            {job?.title ||
+                                'Untitled position'}
+                        </h2>
+
+                        <p className="manage-job-company">
+                            {job?.company ||
+                                'Company not specified'}
                         </p>
 
-                        <nav className="mt-4 space-y-2">
+                        <div className="manage-job-meta">
 
-                            <NavItem
-                                label="Dashboard"
-                                icon="◆"
-                                href="/"
-                            />
+                            <span>
+                                <small>LOC</small>
+                                {job?.location ||
+                                    'Remote'}
+                            </span>
 
-                            <NavItem
-                                label="Job listings"
-                                icon="○"
-                                href="/recruiter/jobs"
-                                active
-                            />
+                            <span>
+                                <small>TYPE</small>
+                                {job?.employmentType ||
+                                    'Full-time'}
+                            </span>
 
-                            <NavItem
-                                label="Candidates"
-                                icon="□"
-                                href="/candidates"
-                            />
+                            <span>
+                                <small>EXP</small>
+                                {job?.experienceLevel ||
+                                    'Any level'}
+                            </span>
 
-                        </nav>
-
-                        <p className="mt-10 px-4 text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-600">
-                            Account
-                        </p>
-
-                        <nav className="mt-4">
-                            <NavItem
-                                label="Settings"
-                                icon="⚙"
-                                href="/settings"
-                            />
-                        </nav>
-
-                    </div>
-
-                    <div className="border-t border-slate-800/70 p-5">
-                        <div className="flex items-center gap-3">
-
-                            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-sm font-semibold">
-                                {getInitials(user?.name)}
-                            </div>
-
-                            <div>
-                                <p className="text-sm font-medium">
-                                    {user?.name}
-                                </p>
-
-                                <p className="text-xs text-slate-500">
-                                    Recruiter
-                                </p>
-                            </div>
+                            <span>
+                                <small>STATUS</small>
+                                {job?.status ||
+                                    'open'}
+                            </span>
 
                         </div>
                     </div>
-                </aside>
+                </div>
 
-                {/* MAIN */}
 
-                <main className="min-w-0 flex-1">
+                <div className="manage-job-summary-side">
 
-                    <header className="flex min-h-[104px] items-center justify-between border-b border-slate-800/70 px-6 lg:px-10">
+                    <StatusPill
+                        status={
+                            job?.status ||
+                            'open'
+                        }
+                    />
+
+                    <p>
+                        {applications.length}{' '}
+                        {applications.length === 1
+                            ? 'candidate'
+                            : 'candidates'}{' '}
+                        analyzed
+                    </p>
+
+                </div>
+            </section>
+
+
+            {/* DRAFT PUBLISH PANEL */}
+
+            {isDraft && (
+                <section className="light-panel manage-job-publish-panel">
+
+                    <div className="manage-job-publish-content">
+
+                        <div className="manage-job-publish-icon">
+                            ↑
+                        </div>
 
                         <div>
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-blue-400">
-                                Candidate intelligence
+                            <span className="eyebrow-text">
+                                DRAFT JOB
+                            </span>
+
+                            <h2>
+                                This job is not visible to candidates yet.
+                            </h2>
+
+                            <p>
+                                Review the job details and publish it when you're ready. Once published, it will appear in the candidate Discover Jobs page and candidates can apply.
                             </p>
-
-                            <p className="mt-1 text-sm text-slate-500">
-                                AI-ranked hiring pipeline
-                            </p>
-                        </div>
-
-                        <button
-                            onClick={() => {
-                                window.location.href =
-                                    '/recruiter/jobs';
-                            }}
-                            className="rounded-xl border border-slate-700 px-5 py-3 text-sm font-medium text-slate-300 transition hover:bg-slate-900"
-                        >
-                            ← Job listings
-                        </button>
-
-                    </header>
-
-                    <div className="mx-auto max-w-[1200px] px-6 py-10 lg:px-10">
-
-                        {/* JOB HEADER */}
-
-                        <section className="rounded-[26px] border border-slate-800 bg-[#090f1f] p-7 lg:p-9">
-
-                            <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-
-                                <div>
-
-                                    <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-blue-400">
-                                        Reviewing applications for
-                                    </p>
-
-                                    <h1 className="mt-3 text-3xl font-bold tracking-tight">
-                                        {job?.title}
-                                    </h1>
-
-                                    <p className="mt-2 text-base text-slate-400">
-                                        {job?.company}
-                                    </p>
-
-                                </div>
-
-                                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
-                                    <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-400">
-                                        AI hiring pipeline
-                                    </p>
-
-                                    <p className="mt-1 text-sm font-medium text-emerald-300">
-                                        {applications.length} candidate
-                                        {applications.length !== 1
-                                            ? 's'
-                                            : ''}{' '}
-                                        analyzed
-                                    </p>
-                                </div>
-
-                            </div>
-
-                        </section>
-
-                        {/* STATS */}
-
-                        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-
-                            <StatCard
-                                label="Applicants"
-                                value={applications.length}
-                                description="Candidates in pipeline"
-                                icon="□"
-                            />
-
-                            <StatCard
-                                label="Avg. match"
-                                value={`${averageMatch}%`}
-                                description="AI compatibility score"
-                                icon="✦"
-                                highlight
-                            />
-
-                            <StatCard
-                                label="Shortlisted"
-                                value={shortlistedCount}
-                                description="Candidates progressing"
-                                icon="✓"
-                            />
-
-                            <StatCard
-                                label="Hired"
-                                value={hiredCount}
-                                description="Successful placements"
-                                icon="◆"
-                            />
-
-                        </div>
-
-                        {/* APPLICANTS */}
-
-                        <div className="mt-10">
-
-                            <div className="flex items-end justify-between">
-
-                                <div>
-                                    <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-600">
-                                        Latest intelligence
-                                    </p>
-
-                                    <h2 className="mt-2 text-2xl font-bold">
-                                        Applicant pipeline
-                                    </h2>
-
-                                    <p className="mt-2 text-sm text-slate-500">
-                                        Candidates ranked by AI compatibility.
-                                    </p>
-                                </div>
-
-                                <div className="hidden rounded-full border border-emerald-500/20 bg-emerald-500/5 px-4 py-2 text-xs font-medium text-emerald-400 sm:block">
-                                    AI analyzed
-                                </div>
-
-                            </div>
-
-                            {error && (
-                                <div className="mt-5 rounded-xl border border-red-500/20 bg-red-500/5 px-5 py-4 text-sm text-red-300">
-                                    {error}
-                                </div>
-                            )}
-
-                            <div className="mt-6 space-y-4">
-
-                                {applications.length === 0 ? (
-                                    <div className="rounded-2xl border border-dashed border-slate-800 bg-[#090f1f] p-12 text-center">
-                                        <p className="text-lg font-semibold">
-                                            No applicants yet
-                                        </p>
-
-                                        <p className="mt-2 text-sm text-slate-500">
-                                            Candidates who apply to this job will appear here.
-                                        </p>
-                                    </div>
-                                ) : (
-                                    applications.map(
-                                        (application, index) => (
-                                            <ApplicantCard
-                                                key={application._id}
-                                                application={application}
-                                                index={index}
-                                                updating={
-                                                    updating ===
-                                                    application._id
-                                                }
-                                                onStatusChange={
-                                                    handleStatusChange
-                                                }
-                                            />
-                                        )
-                                    )
-                                )}
-
-                            </div>
                         </div>
 
                     </div>
-                </main>
-            </div>
-        </div>
+
+                    <button
+                        className="primary-light-button"
+                        type="button"
+                        disabled={publishing}
+                        onClick={
+                            handlePublishJob
+                        }
+                    >
+                        {publishing
+                            ? 'Publishing...'
+                            : 'Publish job →'}
+                    </button>
+
+                </section>
+            )}
+
+
+            {/* OPEN JOB CONFIRMATION */}
+
+            {isOpen && (
+                <section className="light-panel manage-job-live-panel">
+
+                    <div className="manage-job-live-content">
+
+                        <div className="manage-job-live-icon">
+                            ✓
+                        </div>
+
+                        <div>
+                            <span className="eyebrow-text">
+                                JOB IS LIVE
+                            </span>
+
+                            <h2>
+                                This job is visible to candidates.
+                            </h2>
+
+                            <p>
+                                Candidates can discover this opportunity and submit applications.
+                            </p>
+                        </div>
+
+                    </div>
+
+                </section>
+            )}
+
+
+            {/* STATS */}
+
+            <section className="metrics-grid manage-job-metrics">
+
+                <MetricCard
+                    icon="▣"
+                    label="Applicants"
+                    value={
+                        applications.length
+                    }
+                    detail="Candidates in pipeline"
+                    tone="blue"
+                />
+
+                <MetricCard
+                    icon="✦"
+                    label="Average match"
+                    value={`${averageMatch}%`}
+                    detail="AI compatibility score"
+                    tone="purple"
+                />
+
+                <MetricCard
+                    icon="✓"
+                    label="Shortlisted"
+                    value={
+                        shortlistedCount
+                    }
+                    detail="Candidates progressing"
+                    tone="green"
+                />
+
+                <MetricCard
+                    icon="◆"
+                    label="Hired"
+                    value={
+                        hiredCount
+                    }
+                    detail="Successful placements"
+                    tone="orange"
+                />
+
+            </section>
+
+
+            {/* PIPELINE */}
+
+            <section className="light-panel recruiter-pipeline-panel">
+
+                <div className="recruiter-pipeline-header">
+
+                    <div>
+
+                        <span className="eyebrow-text">
+                            APPLICATION PIPELINE
+                        </span>
+
+                        <h2>
+                            Hiring progress
+                        </h2>
+
+                        <p>
+                            See where candidates
+                            currently stand in the
+                            recruitment process.
+                        </p>
+
+                    </div>
+
+                    <MatchRing
+                        score={averageMatch}
+                        label="AVG MATCH"
+                    />
+
+                </div>
+
+
+                <div className="recruiter-pipeline">
+
+                    <PipelineStage
+                        label="Applied"
+                        value={appliedCount}
+                        active={
+                            appliedCount > 0
+                        }
+                    />
+
+                    <PipelineLine />
+
+                    <PipelineStage
+                        label="Shortlisted"
+                        value={
+                            shortlistedCount
+                        }
+                        active={
+                            shortlistedCount > 0
+                        }
+                    />
+
+                    <PipelineLine />
+
+                    <PipelineStage
+                        label="Interview"
+                        value={
+                            interviewCount
+                        }
+                        active={
+                            interviewCount > 0
+                        }
+                    />
+
+                    <PipelineLine />
+
+                    <PipelineStage
+                        label="Hired"
+                        value={hiredCount}
+                        active={
+                            hiredCount > 0
+                        }
+                    />
+
+                </div>
+
+
+                <div className="manage-job-secondary-stats">
+
+                    <div>
+                        <span>
+                            Rejected
+                        </span>
+
+                        <strong>
+                            {rejectedCount}
+                        </strong>
+                    </div>
+
+                    <div>
+                        <span>
+                            Active candidates
+                        </span>
+
+                        <strong>
+                            {applications.length -
+                                rejectedCount -
+                                hiredCount}
+                        </strong>
+                    </div>
+
+                    <div>
+                        <span>
+                            Average match
+                        </span>
+
+                        <strong>
+                            {averageMatch}%
+                        </strong>
+                    </div>
+
+                </div>
+
+            </section>
+
+
+            {/* APPLICANTS */}
+
+            <section className="light-panel applicant-pipeline-panel">
+
+                <div className="applicant-pipeline-header">
+
+                    <div>
+
+                        <span className="eyebrow-text">
+                            LATEST INTELLIGENCE
+                        </span>
+
+                        <h2>
+                            Applicant pipeline
+                        </h2>
+
+                        <p>
+                            Candidates ranked by AI
+                            compatibility score.
+                        </p>
+
+                    </div>
+
+                    <span className="ai-analyzed-badge">
+                        AI analyzed
+                    </span>
+
+                </div>
+
+
+                {applications.length === 0 ? (
+                    <EmptyState
+                        title="No applicants yet"
+                        detail={
+                            isDraft
+                                ? 'Publish this job to make it visible to candidates.'
+                                : 'Candidates who apply to this job will appear here.'
+                        }
+                    />
+                ) : (
+                    <div className="applicant-list">
+
+                        {applications.map(
+                            (
+                                application,
+                                index
+                            ) => (
+                                <ApplicantCard
+                                    key={
+                                        application._id
+                                    }
+                                    application={
+                                        application
+                                    }
+                                    index={index}
+                                    updating={
+                                        updating ===
+                                        application._id
+                                    }
+                                    onStatusChange={
+                                        handleStatusChange
+                                    }
+                                />
+                            )
+                        )}
+
+                    </div>
+                )}
+
+            </section>
+
+        </WorkspaceShell>
     );
 }
+
 
 function ApplicantCard({
     application,
@@ -427,146 +885,227 @@ function ApplicantCard({
         application.resume || {};
 
     const score =
-        typeof application.matchScore === 'number'
-            ? application.matchScore
+        Number.isFinite(
+            Number(
+                application.matchScore
+            )
+        )
+            ? Math.max(
+                0,
+                Math.min(
+                    100,
+                    Number(
+                        application.matchScore
+                    )
+                )
+            )
             : 0;
 
     const skills =
         resume.skills || [];
 
+    const matchAnalysis =
+        application.matchAnalysis ||
+        null;
+
+    const required =
+        matchAnalysis?.required ||
+        null;
+
+    const preferred =
+        matchAnalysis?.preferred ||
+        null;
+
+
     return (
-        <article className="rounded-[24px] border border-slate-800 bg-[#090f1f] p-6 transition hover:border-slate-700">
+        <article className="applicant-card">
 
-            {/* TOP */}
+            <div className="applicant-card-header">
 
-            <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+                <div className="applicant-identity">
 
-                <div className="flex min-w-0 items-center gap-4">
-
-                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-blue-500/10 text-sm font-bold text-blue-400">
-                        {getInitials(candidate.name)}
+                    <div className="applicant-avatar">
+                        {getInitials(
+                            candidate.name
+                        )}
                     </div>
 
-                    <div className="min-w-0">
+                    <div className="applicant-info">
 
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="applicant-name-row">
 
-                            <h3 className="text-lg font-bold">
-                                {candidate.name || 'Candidate'}
+                            <h3>
+                                {candidate.name ||
+                                    'Candidate'}
                             </h3>
 
                             {index === 0 && (
-                                <span className="rounded-full border border-blue-500/20 bg-blue-500/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-blue-400">
-                                    Top match
+                                <span className="top-match-badge">
+                                    TOP MATCH
                                 </span>
                             )}
 
                         </div>
 
-                        <p className="mt-1 text-sm text-slate-500">
-                            {candidate.email}
+                        <p>
+                            {candidate.email ||
+                                'Email not available'}
                         </p>
 
-                        <p className="mt-2 text-xs text-slate-600">
-                            Resume · {resume.fileName || 'Resume'}
-                        </p>
+                        <span>
+                            Resume ·{' '}
+                            {resume.fileName ||
+                                'Resume'}
+                        </span>
 
                     </div>
                 </div>
 
-                <div className="flex items-center gap-5">
 
-                    <div className="text-right">
+                <div className="applicant-match">
 
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-600">
-                            AI match
-                        </p>
-
-                        <p className="mt-1 text-3xl font-bold text-blue-400">
-                            {score}%
-                        </p>
-
-                    </div>
-
-                    <div
-                        className="flex h-14 w-14 items-center justify-center rounded-full border-4 border-slate-800 text-sm font-semibold text-emerald-400"
-                        style={{
-                            background: `conic-gradient(#3b82f6 ${score * 3.6}deg, transparent 0deg)`,
-                        }}
-                    >
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#090f1f]">
-                            {score}
-                        </div>
-                    </div>
+                    <MatchRing
+                        score={score}
+                        label="MATCH"
+                        size="small"
+                    />
 
                 </div>
 
             </div>
 
-            {/* DIVIDER */}
 
-            <div className="my-6 border-t border-slate-800" />
+            <div className="applicant-divider" />
+
+
+            {/* MATCH ANALYSIS */}
+
+            <div className="applicant-analysis">
+
+                <div className="applicant-analysis-heading">
+
+                    <div>
+
+                        <span className="eyebrow-text">
+                            MATCH ANALYSIS
+                        </span>
+
+                        <h4>
+                            Candidate compatibility
+                        </h4>
+
+                    </div>
+
+                    <strong>
+                        {score}% overall
+                    </strong>
+
+                </div>
+
+
+                <div className="applicant-analysis-grid">
+
+                    <AnalysisBlock
+                        label="Required"
+                        analysis={required}
+                    />
+
+                    <AnalysisBlock
+                        label="Preferred"
+                        analysis={preferred}
+                    />
+
+                </div>
+
+            </div>
+
 
             {/* SKILLS */}
 
-            <div>
+            <div className="applicant-skills-section">
 
-                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-                    Detected skills
-                </p>
+                <div className="applicant-section-heading">
 
-                <div className="mt-3 flex flex-wrap gap-2">
+                    <span>
+                        DETECTED SKILLS
+                    </span>
 
-                    {skills.length > 0 ? (
-                        skills.map((skill, index) => {
-                            const skillName =
-                                typeof skill === 'string'
-                                    ? skill
-                                    : skill?.name || skill?.skill || 'Unknown skill';
-
-                            return (
-                                <span
-                                    key={skill?._id || `${skillName}-${index}`}
-                                    className="rounded-lg border border-slate-700 bg-[#050814] px-3 py-1.5 text-xs text-slate-300"
-                                >
-                                    {skillName}
-                                </span>
-                            );
-                        })
-                    ) : (
-                        <span className="text-sm text-slate-600">
-                            No extracted skills
-                        </span>
-                    )}
+                    <small>
+                        {skills.length}{' '}
+                        {skills.length === 1
+                            ? 'skill'
+                            : 'skills'}
+                    </small>
 
                 </div>
 
+
+                {skills.length > 0 ? (
+                    <div className="skill-chip-wrap">
+
+                        {skills.map(
+                            (
+                                skill,
+                                skillIndex
+                            ) => {
+                                const skillName =
+                                    formatSkill(
+                                        skill
+                                    );
+
+                                if (!skillName) {
+                                    return null;
+                                }
+
+                                return (
+                                    <span
+                                        className="skill-chip"
+                                        key={
+                                            skill?._id ||
+                                            `${skillName}-${skillIndex}`
+                                        }
+                                    >
+                                        ✓ {skillName}
+                                    </span>
+                                );
+                            }
+                        )}
+
+                    </div>
+                ) : (
+                    <p className="detail-muted">
+                        No extracted skills.
+                    </p>
+                )}
+
             </div>
 
-            {/* BOTTOM */}
 
-            <div className="mt-6 flex flex-col gap-4 border-t border-slate-800 pt-5 sm:flex-row sm:items-center sm:justify-between">
+            {/* ACTIONS */}
 
-                <p className="text-xs text-slate-600">
+            <div className="applicant-card-footer">
+
+                <p>
                     Applied{' '}
-                    {formatDate(application.appliedAt)}
+                    {formatDate(
+                        application.appliedAt
+                    )}
                 </p>
 
-                <div className="flex items-center gap-3">
+                <div className="applicant-actions">
 
-                    <span
-                        className={`rounded-full px-3 py-2 text-xs font-semibold ${getStatusStyle(
-                            application.status
-                        )
-                            }`}
-                    >
-                        {capitalize(
-                            application.status
-                        )}
-                    </span>
+                    <StatusPill
+                        status={
+                            application.status ||
+                            'applied'
+                        }
+                    />
 
                     <select
-                        value={application.status}
+                        value={
+                            application.status ||
+                            'applied'
+                        }
                         disabled={updating}
                         onChange={(event) =>
                             onStatusChange(
@@ -574,7 +1113,10 @@ function ApplicantCard({
                                 event.target.value
                             )
                         }
-                        className="rounded-xl border border-slate-700 bg-[#050814] px-4 py-2.5 text-xs font-medium text-slate-300 outline-none focus:border-blue-500 disabled:opacity-50"
+                        aria-label={`Change status for ${
+                            candidate.name ||
+                            'candidate'
+                        }`}
                     >
                         <option value="applied">
                             Applied
@@ -605,125 +1147,197 @@ function ApplicantCard({
     );
 }
 
-function StatCard({
+
+function AnalysisBlock({
     label,
-    value,
-    description,
-    icon,
-    highlight = false,
+    analysis,
 }) {
-    return (
-        <div className="rounded-2xl border border-slate-800 bg-[#090f1f] p-6">
+    if (!analysis) {
+        return (
+            <div className="analysis-block">
 
-            <div className="flex items-start justify-between">
+                <div className="analysis-block-header">
 
-                <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-600">
+                    <span>
                         {label}
-                    </p>
+                    </span>
 
-                    <p
-                        className={`mt-3 text-3xl font-bold ${highlight
-                                ? 'text-blue-400'
-                                : 'text-white'
-                            }`}
-                    >
-                        {value}
-                    </p>
+                    <strong>
+                        —
+                    </strong>
+
                 </div>
 
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-800 bg-slate-900 text-sm text-slate-500">
-                    {icon}
+                <div className="analysis-empty">
+                    Match breakdown will appear
+                    for newly submitted
+                    applications.
                 </div>
 
             </div>
+        );
+    }
 
-            <p className="mt-5 text-xs text-slate-600">
-                {description}
-            </p>
+
+    const coverage =
+        Number.isFinite(
+            Number(analysis.coverage)
+        )
+            ? Number(
+                analysis.coverage
+            )
+            : 0;
+
+    const matched =
+        analysis.matchedSkills || [];
+
+    const missing =
+        analysis.missingSkills || [];
+
+
+    return (
+        <div className="analysis-block">
+
+            <div className="analysis-block-header">
+
+                <span>
+                    {label}
+                </span>
+
+                <strong>
+                    {analysis.matched || 0}/
+                    {analysis.total || 0}
+                </strong>
+
+            </div>
+
+
+            <div className="analysis-progress">
+
+                <span
+                    style={{
+                        width: `${Math.max(
+                            0,
+                            Math.min(
+                                100,
+                                coverage
+                            )
+                        )}%`,
+                    }}
+                />
+
+            </div>
+
+
+            <div className="analysis-coverage">
+
+                {coverage}%
+
+                <span>
+                    coverage
+                </span>
+
+            </div>
+
+
+            {matched.length > 0 && (
+                <div className="analysis-skill-group">
+
+                    <span>
+                        Matched
+                    </span>
+
+                    <div>
+
+                        {matched.map(
+                            (
+                                skill,
+                                index
+                            ) => (
+                                <em
+                                    key={`${skill}-${index}`}
+                                >
+                                    ✓{' '}
+                                    {formatSkill(
+                                        skill
+                                    )}
+                                </em>
+                            )
+                        )}
+
+                    </div>
+
+                </div>
+            )}
+
+
+            {missing.length > 0 && (
+                <div className="analysis-skill-group missing">
+
+                    <span>
+                        Missing
+                    </span>
+
+                    <div>
+
+                        {missing.map(
+                            (
+                                skill,
+                                index
+                            ) => (
+                                <em
+                                    key={`${skill}-${index}`}
+                                >
+                                    {formatSkill(
+                                        skill
+                                    )}
+                                </em>
+                            )
+                        )}
+
+                    </div>
+
+                </div>
+            )}
 
         </div>
     );
 }
 
-function NavItem({
+
+function PipelineStage({
     label,
-    icon,
-    href,
-    active = false,
+    value,
+    active,
 }) {
     return (
-        <button
-            onClick={() => {
-                window.location.href = href;
-            }}
-            className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition ${active
-                    ? 'bg-blue-500/10 text-blue-300'
-                    : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
-                }`}
+        <div
+            className={`pipeline-stage ${
+                active
+                    ? 'active'
+                    : ''
+            }`}
         >
-            <span
-                className={
-                    active
-                        ? 'text-blue-400'
-                        : 'text-slate-600'
-                }
-            >
-                {icon}
+            <div className="pipeline-stage-number">
+                {value}
+            </div>
+
+            <span>
+                {label}
             </span>
-
-            {label}
-        </button>
+        </div>
     );
 }
 
-function getInitials(name = '') {
+
+function PipelineLine() {
     return (
-        name
-            .split(' ')
-            .filter(Boolean)
-            .slice(0, 2)
-            .map((part) => part[0])
-            .join('')
-            .toUpperCase() || 'C'
+        <div
+            className="pipeline-line"
+            aria-hidden="true"
+        />
     );
 }
 
-function capitalize(value = '') {
-    return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function formatDate(date) {
-    if (!date) return '—';
-
-    return new Date(date).toLocaleDateString(
-        'en-IN',
-        {
-            day: 'numeric',
-            month: 'short',
-            year: 'numeric',
-        }
-    );
-}
-
-function getStatusStyle(status) {
-    if (status === 'shortlisted') {
-        return 'border border-emerald-500/20 bg-emerald-500/5 text-emerald-400';
-    }
-
-    if (status === 'interview') {
-        return 'border border-blue-500/20 bg-blue-500/5 text-blue-400';
-    }
-
-    if (status === 'hired') {
-        return 'border border-purple-500/20 bg-purple-500/5 text-purple-400';
-    }
-
-    if (status === 'rejected') {
-        return 'border border-red-500/20 bg-red-500/5 text-red-400';
-    }
-
-    return 'border border-slate-700 bg-slate-900 text-slate-400';
-}
 
 export default ManageJob;

@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import { useAuth } from '../context/AuthContext';
+
 import { API_BASE_URL } from '../api/config';
+import { useAuth } from '../context/AuthContext';
+import { WorkspaceShell } from '../components/WorkspaceShell';
 
 function CreateJob() {
-    const { user, token } = useAuth();
+    const { token } = useAuth();
 
     const [form, setForm] = useState({
         title: '',
@@ -14,7 +16,7 @@ function CreateJob() {
         location: '',
         employmentType: 'full-time',
         experienceLevel: 'entry',
-        status: 'draft',
+        status: 'open',
         applicationDeadline: '',
     });
 
@@ -29,6 +31,10 @@ function CreateJob() {
             ...current,
             [name]: value,
         }));
+    };
+
+    const navigate = (path) => {
+        window.location.href = path;
     };
 
     const handleSubmit = async (event) => {
@@ -52,6 +58,11 @@ function CreateJob() {
             return;
         }
 
+        if (!form.requiredSkills.trim()) {
+            setError('At least one required skill is required.');
+            return;
+        }
+
         try {
             setLoading(true);
 
@@ -65,25 +76,16 @@ function CreateJob() {
                     title: form.title.trim(),
                     company: form.company.trim(),
                     description: form.description.trim(),
-
                     requiredSkills: parseSkills(
                         form.requiredSkills
                     ),
-
                     preferredSkills: parseSkills(
                         form.preferredSkills
                     ),
-
                     location: form.location.trim(),
-
-                    employmentType:
-                        form.employmentType,
-
-                    experienceLevel:
-                        form.experienceLevel,
-
+                    employmentType: form.employmentType,
+                    experienceLevel: form.experienceLevel,
                     status: form.status,
-
                     applicationDeadline:
                         form.applicationDeadline || undefined,
                 }),
@@ -100,395 +102,264 @@ function CreateJob() {
             setSuccess('Job created successfully.');
 
             setTimeout(() => {
-                window.location.href = '/recruiter/jobs';
+                navigate('/recruiter/jobs');
             }, 700);
-
         } catch (err) {
             console.error('Create job error:', err);
-            setError(err.message);
+
+            setError(
+                err.message || 'Unable to create job.'
+            );
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <div className="min-h-screen bg-[#050814] text-white">
-            <div className="flex min-h-screen">
+        <WorkspaceShell
+            role="recruiter"
+            title="Create a job"
+            subtitle="Publish a role and start building your AI-ranked candidate pipeline."
+            action={
+                <button
+                    className="secondary-light-button"
+                    type="button"
+                    onClick={() =>
+                        navigate('/recruiter/jobs')
+                    }
+                >
+                    ← Back to jobs
+                </button>
+            }
+        >
+            <form
+                className="create-job-form"
+                onSubmit={handleSubmit}
+            >
+                {/* ROLE INFORMATION */}
 
-                {/* SIDEBAR */}
+                <section className="light-panel create-job-section">
+                    <SectionHeader
+                        number="01"
+                        title="Role information"
+                        description="Define the position and company."
+                    />
 
-                <aside className="hidden w-[272px] shrink-0 border-r border-slate-800/80 bg-[#070b16] lg:flex lg:flex-col">
+                    <div className="create-job-fields">
+                        <Field
+                            label="Job title"
+                            name="title"
+                            value={form.title}
+                            onChange={handleChange}
+                            placeholder="e.g. Junior Full Stack Developer"
+                            required
+                        />
 
-                    <div className="flex h-[104px] items-center border-b border-slate-800/70 px-8">
-                        <button
-                            onClick={() => {
-                                window.location.href = '/';
-                            }}
-                            className="flex items-center gap-3"
-                        >
-                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 text-lg font-bold shadow-lg shadow-blue-500/20">
-                                S
-                            </div>
+                        <Field
+                            label="Company"
+                            name="company"
+                            value={form.company}
+                            onChange={handleChange}
+                            placeholder="e.g. SmartTech Solutions"
+                            required
+                        />
 
-                            <div className="text-left">
-                                <p className="text-sm font-bold">
-                                    Smart Resume
-                                </p>
+                        <Field
+                            label="Location"
+                            name="location"
+                            value={form.location}
+                            onChange={handleChange}
+                            placeholder="e.g. Bangalore"
+                        />
 
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-500">
-                                    Matcher
-                                </p>
-                            </div>
-                        </button>
+                        <SelectField
+                            label="Employment type"
+                            name="employmentType"
+                            value={form.employmentType}
+                            onChange={handleChange}
+                            options={[
+                                ['full-time', 'Full-time'],
+                                ['part-time', 'Part-time'],
+                                ['contract', 'Contract'],
+                                ['internship', 'Internship'],
+                            ]}
+                        />
+
+                        <SelectField
+                            label="Experience level"
+                            name="experienceLevel"
+                            value={form.experienceLevel}
+                            onChange={handleChange}
+                            options={[
+                                ['entry', 'Entry level'],
+                                ['mid', 'Mid level'],
+                                ['senior', 'Senior level'],
+                                ['lead', 'Lead'],
+                            ]}
+                        />
+
+                        <SelectField
+                            label="Publishing status"
+                            name="status"
+                            value={form.status}
+                            onChange={handleChange}
+                            options={[
+                                ['draft', 'Draft'],
+                                ['open', 'Open'],
+                            ]}
+                        />
                     </div>
+                </section>
 
-                    <div className="flex-1 px-4 py-8">
+                {/* DESCRIPTION */}
 
-                        <p className="px-4 text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-600">
-                            Workspace
+                <section className="light-panel create-job-section">
+                    <SectionHeader
+                        number="02"
+                        title="Role description"
+                        description="Explain what the candidate will be doing."
+                    />
+
+                    <div className="create-job-full-field">
+                        <label className="light-form-label">
+                            Description
+                            <span>*</span>
+                        </label>
+
+                        <textarea
+                            name="description"
+                            value={form.description}
+                            onChange={handleChange}
+                            rows={8}
+                            placeholder="Describe the role, responsibilities, team, and what the candidate will work on..."
+                            className="light-textarea"
+                            required
+                        />
+
+                        <p className="light-field-help">
+                            Include responsibilities, technologies,
+                            team context, and expectations for the
+                            role.
                         </p>
+                    </div>
+                </section>
 
-                        <nav className="mt-4 space-y-2">
+                {/* AI MATCHING */}
 
-                            <NavItem
-                                icon="◆"
-                                label="Dashboard"
-                                href="/"
-                            />
+                <section className="light-panel create-job-section">
+                    <SectionHeader
+                        number="03"
+                        title="AI matching criteria"
+                        description="These skills are used by the matching engine to rank candidates."
+                    />
 
-                            <NavItem
-                                active
-                                icon="○"
-                                label="Job listings"
-                                href="/recruiter/jobs"
-                            />
+                    <div className="create-job-fields">
+                        <SkillField
+                            label="Required skills"
+                            name="requiredSkills"
+                            value={form.requiredSkills}
+                            onChange={handleChange}
+                            placeholder="JavaScript, React, Node.js, MongoDB"
+                            required
+                            accent="required"
+                        />
 
-                            <NavItem
-                                icon="□"
-                                label="Candidates"
-                                href="/candidates"
-                            />
+                        <SkillField
+                            label="Preferred skills"
+                            name="preferredSkills"
+                            value={form.preferredSkills}
+                            onChange={handleChange}
+                            placeholder="Express, Git, REST API"
+                            accent="preferred"
+                        />
+                    </div>
 
-                        </nav>
+                    <div className="create-job-tip">
+                        <span>TIP</span>
 
-                        <p className="mt-10 px-4 text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-600">
-                            Account
+                        <p>
+                            Separate skills with commas.
+                            Required skills have a stronger
+                            influence on the compatibility
+                            score.
                         </p>
-
-                        <nav className="mt-4">
-                            <NavItem
-                                icon="⚙"
-                                label="Settings"
-                                href="/settings"
-                            />
-                        </nav>
                     </div>
+                </section>
 
-                    <div className="border-t border-slate-800/70 p-5">
-                        <div className="flex items-center gap-3">
+                {/* APPLICATION SETTINGS */}
 
-                            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-sm font-semibold">
-                                {getInitials(user?.name)}
-                            </div>
+                <section className="light-panel create-job-section">
+                    <SectionHeader
+                        number="04"
+                        title="Application settings"
+                        description="Optionally define when applications should close."
+                    />
 
-                            <div className="min-w-0">
-                                <p className="truncate text-sm font-medium">
-                                    {user?.name}
-                                </p>
+                    <div className="create-job-deadline">
+                        <label className="light-form-label">
+                            Application deadline
+                        </label>
 
-                                <p className="text-xs text-slate-500">
-                                    Recruiter
-                                </p>
-                            </div>
-                        </div>
+                        <input
+                            type="date"
+                            name="applicationDeadline"
+                            value={form.applicationDeadline}
+                            onChange={handleChange}
+                            className="light-field"
+                        />
+
+                        <p className="light-field-help">
+                            Leave this blank if applications
+                            should remain open indefinitely.
+                        </p>
                     </div>
-                </aside>
+                </section>
 
-                {/* MAIN */}
+                {/* FEEDBACK */}
 
-                <main className="min-w-0 flex-1">
-
-                    {/* TOP BAR */}
-
-                    <header className="flex min-h-[104px] items-center justify-between border-b border-slate-800/70 px-6 lg:px-10">
-
-                        <div>
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-blue-400">
-                                Recruiter workspace
-                            </p>
-
-                            <p className="mt-1 text-sm text-slate-500">
-                                Create a new opportunity
-                            </p>
-                        </div>
-
-                        <button
-                            onClick={() => {
-                                window.location.href =
-                                    '/recruiter/jobs';
-                            }}
-                            className="rounded-xl border border-slate-700 px-5 py-3 text-sm font-medium text-slate-300 transition hover:bg-slate-900"
-                        >
-                            ← Back to jobs
-                        </button>
-                    </header>
-
-                    <div className="mx-auto max-w-[1100px] px-6 py-10 lg:px-10">
-
-                        {/* HEADER */}
-
-                        <div>
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-blue-400">
-                                New opportunity
-                            </p>
-
-                            <h1 className="mt-3 text-4xl font-bold tracking-tight">
-                                Create a job
-                            </h1>
-
-                            <p className="mt-3 max-w-2xl text-base leading-7 text-slate-400">
-                                Publish a role and start building your
-                                AI-ranked candidate pipeline.
-                            </p>
-                        </div>
-
-                        {/* FORM */}
-
-                        <form
-                            onSubmit={handleSubmit}
-                            className="mt-8 space-y-6"
-                        >
-
-                            {/* BASIC INFO */}
-
-                            <section className="rounded-[24px] border border-slate-800 bg-[#090f1f] p-6 lg:p-8">
-
-                                <SectionHeader
-                                    number="01"
-                                    title="Role information"
-                                    description="Define the position and company."
-                                />
-
-                                <div className="mt-8 grid gap-5 md:grid-cols-2">
-
-                                    <Field
-                                        label="Job title"
-                                        name="title"
-                                        value={form.title}
-                                        onChange={handleChange}
-                                        placeholder="e.g. Junior Full Stack Developer"
-                                        required
-                                    />
-
-                                    <Field
-                                        label="Company"
-                                        name="company"
-                                        value={form.company}
-                                        onChange={handleChange}
-                                        placeholder="e.g. SmartTech Solutions"
-                                        required
-                                    />
-
-                                    <Field
-                                        label="Location"
-                                        name="location"
-                                        value={form.location}
-                                        onChange={handleChange}
-                                        placeholder="e.g. Bangalore"
-                                    />
-
-                                    <SelectField
-                                        label="Employment type"
-                                        name="employmentType"
-                                        value={form.employmentType}
-                                        onChange={handleChange}
-                                        options={[
-                                            ['full-time', 'Full-time'],
-                                            ['part-time', 'Part-time'],
-                                            ['contract', 'Contract'],
-                                            ['internship', 'Internship'],
-                                        ]}
-                                    />
-
-                                    <SelectField
-                                        label="Experience level"
-                                        name="experienceLevel"
-                                        value={form.experienceLevel}
-                                        onChange={handleChange}
-                                        options={[
-                                            ['entry', 'Entry level'],
-                                            ['mid', 'Mid level'],
-                                            ['senior', 'Senior level'],
-                                            ['lead', 'Lead'],
-                                        ]}
-                                    />
-
-                                    <SelectField
-                                        label="Publishing status"
-                                        name="status"
-                                        value={form.status}
-                                        onChange={handleChange}
-                                        options={[
-                                            ['draft', 'Draft'],
-                                            ['open', 'Open'],
-                                        ]}
-                                    />
-
-                                </div>
-                            </section>
-
-                            {/* DESCRIPTION */}
-
-                            <section className="rounded-[24px] border border-slate-800 bg-[#090f1f] p-6 lg:p-8">
-
-                                <SectionHeader
-                                    number="02"
-                                    title="Role description"
-                                    description="Explain what the candidate will be doing."
-                                />
-
-                                <div className="mt-8">
-
-                                    <label className="text-sm font-medium text-slate-300">
-                                        Description
-                                        <span className="ml-1 text-blue-400">
-                                            *
-                                        </span>
-                                    </label>
-
-                                    <textarea
-                                        name="description"
-                                        value={form.description}
-                                        onChange={handleChange}
-                                        rows={7}
-                                        placeholder="Describe the role, responsibilities, team, and what the candidate will work on..."
-                                        className="mt-2 w-full resize-none rounded-xl border border-slate-700 bg-[#050814] px-4 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500"
-                                        required
-                                    />
-
-                                </div>
-                            </section>
-
-                            {/* SKILLS */}
-
-                            <section className="rounded-[24px] border border-slate-800 bg-[#090f1f] p-6 lg:p-8">
-
-                                <SectionHeader
-                                    number="03"
-                                    title="AI matching criteria"
-                                    description="These skills are used by the matching engine to rank candidates."
-                                />
-
-                                <div className="mt-8 grid gap-6 md:grid-cols-2">
-
-                                    <SkillField
-                                        label="Required skills"
-                                        name="requiredSkills"
-                                        value={form.requiredSkills}
-                                        onChange={handleChange}
-                                        placeholder="JavaScript, React, Node.js, MongoDB"
-                                        required
-                                        accent="required"
-                                    />
-
-                                    <SkillField
-                                        label="Preferred skills"
-                                        name="preferredSkills"
-                                        value={form.preferredSkills}
-                                        onChange={handleChange}
-                                        placeholder="Express, Git, REST API"
-                                        accent="preferred"
-                                    />
-
-                                </div>
-
-                                <div className="mt-5 rounded-xl border border-blue-500/10 bg-blue-500/5 px-4 py-3">
-                                    <p className="text-xs leading-5 text-slate-400">
-                                        <span className="font-semibold text-blue-400">
-                                            Tip:
-                                        </span>{' '}
-                                        Separate skills with commas. Required
-                                        skills have a stronger influence on
-                                        the compatibility score.
-                                    </p>
-                                </div>
-                            </section>
-
-                            {/* DEADLINE */}
-
-                            <section className="rounded-[24px] border border-slate-800 bg-[#090f1f] p-6 lg:p-8">
-
-                                <SectionHeader
-                                    number="04"
-                                    title="Application settings"
-                                    description="Optionally define when applications should close."
-                                />
-
-                                <div className="mt-8 max-w-md">
-
-                                    <label className="text-sm font-medium text-slate-300">
-                                        Application deadline
-                                    </label>
-
-                                    <input
-                                        type="date"
-                                        name="applicationDeadline"
-                                        value={form.applicationDeadline}
-                                        onChange={handleChange}
-                                        className="mt-2 w-full rounded-xl border border-slate-700 bg-[#050814] px-4 py-3 text-sm text-white outline-none transition focus:border-blue-500"
-                                    />
-
-                                </div>
-                            </section>
-
-                            {/* FEEDBACK */}
-
-                            {error && (
-                                <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-5 py-4 text-sm text-red-300">
-                                    {error}
-                                </div>
-                            )}
-
-                            {success && (
-                                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-5 py-4 text-sm text-emerald-300">
-                                    {success}
-                                </div>
-                            )}
-
-                            {/* ACTIONS */}
-
-                            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        window.location.href =
-                                            '/recruiter/jobs';
-                                    }}
-                                    className="rounded-xl border border-slate-700 px-6 py-3 text-sm font-semibold text-slate-300 transition hover:bg-slate-900"
-                                >
-                                    Cancel
-                                </button>
-
-                                <button
-                                    type="submit"
-                                    disabled={loading}
-                                    className="rounded-xl bg-blue-600 px-7 py-3 text-sm font-semibold shadow-lg shadow-blue-600/20 transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                    {loading
-                                        ? 'Creating...'
-                                        : form.status === 'open'
-                                            ? 'Publish job'
-                                            : 'Save draft'}
-                                </button>
-
-                            </div>
-
-                        </form>
+                {error && (
+                    <div className="create-job-message create-job-error">
+                        <strong>Unable to create job</strong>
+                        <span>{error}</span>
                     </div>
-                </main>
-            </div>
-        </div>
+                )}
+
+                {success && (
+                    <div className="create-job-message create-job-success">
+                        <strong>Job created successfully</strong>
+                        <span>
+                            Redirecting to your job listings...
+                        </span>
+                    </div>
+                )}
+
+                {/* ACTIONS */}
+
+                <div className="create-job-actions">
+                    <button
+                        type="button"
+                        className="secondary-light-button"
+                        onClick={() =>
+                            navigate('/recruiter/jobs')
+                        }
+                    >
+                        Cancel
+                    </button>
+
+                    <button
+                        type="submit"
+                        className="primary-light-button create-job-submit"
+                        disabled={loading}
+                    >
+                        {loading
+                            ? 'Creating...'
+                            : form.status === 'open'
+                                ? 'Publish job →'
+                                : 'Save draft →'}
+                    </button>
+                </div>
+            </form>
+        </WorkspaceShell>
     );
 }
 
@@ -498,22 +369,15 @@ function SectionHeader({
     description,
 }) {
     return (
-        <div className="flex items-start gap-4">
-
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-blue-500/20 bg-blue-500/10 text-xs font-semibold text-blue-400">
+        <div className="create-job-section-header">
+            <div className="create-job-section-number">
                 {number}
             </div>
 
             <div>
-                <h2 className="text-xl font-semibold">
-                    {title}
-                </h2>
-
-                <p className="mt-1 text-sm text-slate-500">
-                    {description}
-                </p>
+                <h2>{title}</h2>
+                <p>{description}</p>
             </div>
-
         </div>
     );
 }
@@ -527,15 +391,11 @@ function Field({
     required = false,
 }) {
     return (
-        <div>
-            <label className="text-sm font-medium text-slate-300">
+        <div className="create-job-field">
+            <label className="light-form-label">
                 {label}
 
-                {required && (
-                    <span className="ml-1 text-blue-400">
-                        *
-                    </span>
-                )}
+                {required && <span>*</span>}
             </label>
 
             <input
@@ -544,7 +404,7 @@ function Field({
                 onChange={onChange}
                 placeholder={placeholder}
                 required={required}
-                className="mt-2 w-full rounded-xl border border-slate-700 bg-[#050814] px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500"
+                className="light-field"
             />
         </div>
     );
@@ -558,8 +418,8 @@ function SelectField({
     options,
 }) {
     return (
-        <div>
-            <label className="text-sm font-medium text-slate-300">
+        <div className="create-job-field">
+            <label className="light-form-label">
                 {label}
             </label>
 
@@ -567,16 +427,18 @@ function SelectField({
                 name={name}
                 value={value}
                 onChange={onChange}
-                className="mt-2 w-full rounded-xl border border-slate-700 bg-[#050814] px-4 py-3 text-sm text-white outline-none transition focus:border-blue-500"
+                className="light-field light-select"
             >
-                {options.map(([optionValue, optionLabel]) => (
-                    <option
-                        key={optionValue}
-                        value={optionValue}
-                    >
-                        {optionLabel}
-                    </option>
-                ))}
+                {options.map(
+                    ([optionValue, optionLabel]) => (
+                        <option
+                            key={optionValue}
+                            value={optionValue}
+                        >
+                            {optionLabel}
+                        </option>
+                    )
+                )}
             </select>
         </div>
     );
@@ -592,15 +454,11 @@ function SkillField({
     accent,
 }) {
     return (
-        <div>
-            <label className="text-sm font-medium text-slate-300">
+        <div className="create-job-field">
+            <label className="light-form-label">
                 {label}
 
-                {required && (
-                    <span className="ml-1 text-blue-400">
-                        *
-                    </span>
-                )}
+                {required && <span>*</span>}
             </label>
 
             <input
@@ -609,13 +467,13 @@ function SkillField({
                 onChange={onChange}
                 placeholder={placeholder}
                 required={required}
-                className="mt-2 w-full rounded-xl border border-slate-700 bg-[#050814] px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500"
+                className="light-field"
             />
 
             <p
-                className={`mt-2 text-xs ${accent === 'required'
-                        ? 'text-blue-400'
-                        : 'text-slate-500'
+                className={`create-job-skill-help ${accent === 'required'
+                        ? 'required'
+                        : 'preferred'
                     }`}
             >
                 {accent === 'required'
@@ -626,51 +484,11 @@ function SkillField({
     );
 }
 
-function NavItem({
-    icon,
-    label,
-    href,
-    active = false,
-}) {
-    return (
-        <button
-            onClick={() => {
-                window.location.href = href;
-            }}
-            className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition ${active
-                    ? 'bg-blue-500/10 text-blue-300'
-                    : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
-                }`}
-        >
-            <span
-                className={`w-5 text-center ${active
-                        ? 'text-blue-400'
-                        : 'text-slate-600'
-                    }`}
-            >
-                {icon}
-            </span>
-
-            {label}
-        </button>
-    );
-}
-
 function parseSkills(value) {
     return value
         .split(',')
         .map((skill) => skill.trim())
         .filter(Boolean);
-}
-
-function getInitials(name = '') {
-    return name
-        .split(' ')
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((part) => part[0])
-        .join('')
-        .toUpperCase();
 }
 
 export default CreateJob;

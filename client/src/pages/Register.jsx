@@ -1,4 +1,5 @@
 import { useState } from 'react';
+
 import { useAuth } from '../context/AuthContext';
 
 function Register() {
@@ -52,125 +53,244 @@ function Register() {
     };
 
     return (
-        <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4 py-10">
-            <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-8 shadow-2xl">
-                <div className="mb-8">
-                    <p className="text-sm font-medium uppercase tracking-wider text-blue-400">
-                        Smart Resume Matcher
-                    </p>
+        <div className="auth-page">
+            <div className="auth-background-orb auth-orb-one" />
+            <div className="auth-background-orb auth-orb-two" />
 
-                    <h1 className="mt-2 text-3xl font-bold text-white">
-                        Create account
-                    </h1>
+            <main className="auth-layout auth-register-layout">
+                <section className="auth-brand-panel">
+                    <div className="auth-brand">
+                        <span className="brand-leaf" aria-hidden="true">
+                            <i />
+                            <b />
+                            <em />
+                        </span>
 
-                    <p className="mt-2 text-slate-400">
-                        Choose how you will use the platform.
-                    </p>
-                </div>
-
-                <form onSubmit={handleSubmit} className="space-y-5">
-                    <div>
-                        <label
-                            htmlFor="name"
-                            className="mb-2 block text-sm font-medium text-slate-300"
-                        >
-                            Full name
-                        </label>
-
-                        <input
-                            id="name"
-                            name="name"
-                            type="text"
-                            value={form.name}
-                            onChange={handleChange}
-                            placeholder="Your name"
-                            required
-                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-blue-500"
-                        />
+                        <span>
+                            <strong>Smart Resume</strong>
+                            <small>MATCHER</small>
+                        </span>
                     </div>
 
-                    <div>
-                        <label
-                            htmlFor="email"
-                            className="mb-2 block text-sm font-medium text-slate-300"
-                        >
-                            Email
-                        </label>
+                    <div className="auth-brand-content">
+                        <span className="eyebrow-text">
+                            BUILD YOUR WORKSPACE
+                        </span>
 
-                        <input
-                            id="email"
-                            name="email"
-                            type="email"
-                            value={form.email}
-                            onChange={handleChange}
-                            placeholder="you@example.com"
-                            required
-                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-blue-500"
-                        />
+                        <h1>
+                            Start your
+                            <br />
+                            <span>next move.</span>
+                        </h1>
+
+                        <p>
+                            Create your account and use intelligent
+                            resume matching to make better hiring
+                            decisions.
+                        </p>
                     </div>
 
-                    <div>
-                        <label
-                            htmlFor="password"
-                            className="mb-2 block text-sm font-medium text-slate-300"
-                        >
-                            Password
-                        </label>
-
-                        <input
-                            id="password"
-                            name="password"
-                            type="password"
-                            value={form.password}
-                            onChange={handleChange}
-                            placeholder="Minimum 8 characters"
-                            minLength={8}
-                            required
-                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-blue-500"
-                        />
+                    <div className="auth-brand-footer">
+                        <span>Candidate matching</span>
+                        <span>•</span>
+                        <span>Recruiter intelligence</span>
+                        <span>•</span>
+                        <span>One workspace</span>
                     </div>
+                </section>
 
-                    <div>
-                        <label
-                            htmlFor="role"
-                            className="mb-2 block text-sm font-medium text-slate-300"
-                        >
-                            I am a
-                        </label>
+                <section className="auth-form-panel">
+                    <div className="auth-form-container">
+                        <div className="auth-mobile-brand">
+                            <span className="brand-leaf" aria-hidden="true">
+                                <i />
+                                <b />
+                                <em />
+                            </span>
 
-                        <select
-                            id="role"
-                            name="role"
-                            value={form.role}
-                            onChange={handleChange}
-                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-blue-500"
-                        >
-                            <option value="candidate">Candidate</option>
-                            <option value="recruiter">Recruiter</option>
-                        </select>
-                    </div>
-
-                    {error && (
-                        <div className="rounded-lg border border-red-900 bg-red-950/40 px-4 py-3 text-sm text-red-400">
-                            {error}
+                            <span>
+                                <strong>Smart Resume</strong>
+                                <small>MATCHER</small>
+                            </span>
                         </div>
-                    )}
 
-                    {success && (
-                        <div className="rounded-lg border border-green-900 bg-green-950/40 px-4 py-3 text-sm text-green-400">
-                            {success}
+                        <div className="auth-heading">
+                            <span className="eyebrow-text">
+                                GET STARTED
+                            </span>
+
+                            <h2>Create your account</h2>
+
+                            <p>
+                                Choose your workspace and start using
+                                Smart Resume Matcher.
+                            </p>
                         </div>
-                    )}
 
-                    <button
-                        type="submit"
-                        disabled={loading}
-                        className="w-full rounded-lg bg-blue-600 px-4 py-3 font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                        {loading ? 'Creating account...' : 'Create account'}
-                    </button>
-                </form>
-            </div>
+                        <form
+                            onSubmit={handleSubmit}
+                            className="auth-form"
+                        >
+                            <div className="auth-field">
+                                <label htmlFor="name">Full name</label>
+
+                                <input
+                                    id="name"
+                                    name="name"
+                                    type="text"
+                                    value={form.name}
+                                    onChange={handleChange}
+                                    placeholder="Your full name"
+                                    autoComplete="name"
+                                    required
+                                />
+                            </div>
+
+                            <div className="auth-field">
+                                <label htmlFor="email">
+                                    Email address
+                                </label>
+
+                                <input
+                                    id="email"
+                                    name="email"
+                                    type="email"
+                                    value={form.email}
+                                    onChange={handleChange}
+                                    placeholder="you@example.com"
+                                    autoComplete="email"
+                                    required
+                                />
+                            </div>
+
+                            <div className="auth-field">
+                                <label htmlFor="password">
+                                    Password
+                                </label>
+
+                                <input
+                                    id="password"
+                                    name="password"
+                                    type="password"
+                                    value={form.password}
+                                    onChange={handleChange}
+                                    placeholder="Minimum 8 characters"
+                                    minLength={8}
+                                    autoComplete="new-password"
+                                    required
+                                />
+                            </div>
+
+                            <div className="auth-field">
+                                <label>I am joining as</label>
+
+                                <div className="role-selector">
+                                    <label
+                                        className={`role-option ${form.role === 'candidate'
+                                                ? 'selected'
+                                                : ''
+                                            }`}
+                                    >
+                                        <input
+                                            type="radio"
+                                            name="role"
+                                            value="candidate"
+                                            checked={
+                                                form.role === 'candidate'
+                                            }
+                                            onChange={handleChange}
+                                        />
+
+                                        <span className="role-option-icon">
+                                            ◇
+                                        </span>
+
+                                        <span>
+                                            <strong>Candidate</strong>
+                                            <small>
+                                                Find matching opportunities
+                                            </small>
+                                        </span>
+                                    </label>
+
+                                    <label
+                                        className={`role-option ${form.role === 'recruiter'
+                                                ? 'selected'
+                                                : ''
+                                            }`}
+                                    >
+                                        <input
+                                            type="radio"
+                                            name="role"
+                                            value="recruiter"
+                                            checked={
+                                                form.role === 'recruiter'
+                                            }
+                                            onChange={handleChange}
+                                        />
+
+                                        <span className="role-option-icon">
+                                            ◎
+                                        </span>
+
+                                        <span>
+                                            <strong>Recruiter</strong>
+                                            <small>
+                                                Find qualified candidates
+                                            </small>
+                                        </span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            {error && (
+                                <div className="auth-message auth-message-error">
+                                    {error}
+                                </div>
+                            )}
+
+                            {success && (
+                                <div className="auth-message auth-message-success">
+                                    {success}
+                                </div>
+                            )}
+
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="auth-submit-button"
+                            >
+                                {loading ? (
+                                    <>
+                                        <span className="auth-button-spinner" />
+                                        Creating account...
+                                    </>
+                                ) : (
+                                    'Create account →'
+                                )}
+                            </button>
+                        </form>
+
+                        <div className="auth-divider">
+                            <span />
+                            <small>ALREADY HAVE AN ACCOUNT?</small>
+                            <span />
+                        </div>
+
+                        <a
+                            href="/"
+                            className="auth-secondary-link"
+                        >
+                            Sign in instead
+                        </a>
+
+                        <p className="auth-legal">
+                            Your account role determines which workspace
+                            and features you can access.
+                        </p>
+                    </div>
+                </section>
+            </main>
         </div>
     );
 }

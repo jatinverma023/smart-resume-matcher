@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useAuth } from '../context/AuthContext';
+
 import { getJobs } from '../api/jobs';
+import { EmptyState, WorkspaceShell } from '../components/WorkspaceShell';
+import { useAuth } from '../context/AuthContext';
+
+function getSkillName(skill) {
+    return typeof skill === 'string' ? skill : skill?.name || '';
+}
 
 function Jobs() {
     const { token } = useAuth();
@@ -10,259 +16,451 @@ function Jobs() {
     const [error, setError] = useState('');
     const [search, setSearch] = useState('');
     const [location, setLocation] = useState('all');
+    const [selectedJobId, setSelectedJobId] = useState('');
 
     useEffect(() => {
-        const loadJobs = async () => {
+        let cancelled = false;
+
+        async function loadJobs() {
             try {
                 setLoading(true);
                 setError('');
 
                 const data = await getJobs(token);
-                setJobs(data.jobs || []);
-            } catch (err) {
-                setError(err.message || 'Unable to load jobs');
+
+                if (!cancelled) {
+                    setJobs(data.jobs ?? []);
+                }
+            } catch (requestError) {
+                if (!cancelled) {
+                    setError(requestError.message || 'Unable to load jobs');
+                }
             } finally {
-                setLoading(false);
+                if (!cancelled) {
+                    setLoading(false);
+                }
             }
-        };
+        }
 
         if (token) {
-            loadJobs();
+            void loadJobs();
+        } else {
+            setLoading(false);
         }
+
+        return () => {
+            cancelled = true;
+        };
     }, [token]);
 
     const locations = useMemo(() => {
-        return [
-            'all',
+        const uniqueLocations = [
             ...new Set(
                 jobs
                     .map((job) => job.location)
                     .filter(Boolean)
             ),
         ];
+
+        return ['all', ...uniqueLocations];
     }, [jobs]);
 
     const filteredJobs = useMemo(() => {
         const query = search.trim().toLowerCase();
 
         return jobs.filter((job) => {
+            const requiredSkills = (job.requiredSkills ?? [])
+                .map(getSkillName)
+                .filter(Boolean);
+
+            const preferredSkills = (job.preferredSkills ?? [])
+                .map(getSkillName)
+                .filter(Boolean);
+
             const matchesSearch =
                 !query ||
                 job.title?.toLowerCase().includes(query) ||
                 job.company?.toLowerCase().includes(query) ||
                 job.description?.toLowerCase().includes(query) ||
-                job.requiredSkills?.some((skill) =>
+                requiredSkills.some((skill) =>
+                    skill.toLowerCase().includes(query)
+                ) ||
+                preferredSkills.some((skill) =>
                     skill.toLowerCase().includes(query)
                 );
 
             const matchesLocation =
-                location === 'all' ||
-                job.location === location;
+                location === 'all' || job.location === location;
 
             return matchesSearch && matchesLocation;
         });
-    }, [jobs, search, location]);
+    }, [jobs, location, search]);
+
+    const selectedJob =
+        filteredJobs.find((job) => job._id === selectedJobId) ??
+        filteredJobs[0] ??
+        null;
+
+    useEffect(() => {
+        if (
+            filteredJobs.length > 0 &&
+            !filteredJobs.some((job) => job._id === selectedJobId)
+        ) {
+            setSelectedJobId(filteredJobs[0]._id);
+        }
+
+        if (!filteredJobs.length) {
+            setSelectedJobId('');
+        }
+    }, [filteredJobs, selectedJobId]);
+
+    const openJob = (jobId) => {
+        window.location.href = `/jobs/${jobId}`;
+    };
+
+    const goToApplications = () => {
+        window.location.href = '/applications';
+    };
 
     return (
-        <div className="min-h-screen bg-[#050814] text-white">
+        <WorkspaceShell
+            title="Discover jobs"
+            subtitle="Explore open opportunities and preview the skills each role needs."
+            action={
+                <button
+                    className="secondary-light-button"
+                    type="button"
+                    onClick={goToApplications}
+                >
+                    My applications
+                </button>
+            }
+        >
+            <section
+                className="light-filter-bar"
+                aria-label="Job filters"
+            >
+                <div className="filter-field-wrap">
+                    <span className="filter-field-icon" aria-hidden="true">
+                        ⌕
+                    </span>
 
-            <div className="mx-auto max-w-7xl px-6 py-10 lg:px-10">
-
-                {/* Header */}
-                <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
-
-                    <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.25em] text-blue-400">
-                            Opportunity discovery
-                        </p>
-
-                        <h1 className="mt-3 text-4xl font-bold tracking-tight">
-                            Discover jobs
-                        </h1>
-
-                        <p className="mt-3 max-w-2xl text-slate-400">
-                            Explore open opportunities and find roles that
-                            align with your resume and technical skills.
-                        </p>
-                    </div>
-
-                    <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-5 py-4">
-                        <p className="text-xs uppercase tracking-wider text-slate-500">
-                            Open opportunities
-                        </p>
-
-                        <p className="mt-1 text-2xl font-semibold">
-                            {jobs.length}
-                        </p>
-                    </div>
+                    <input
+                        className="light-field"
+                        type="search"
+                        value={search}
+                        onChange={(event) => setSearch(event.target.value)}
+                        placeholder="Search by title, skill, company…"
+                        aria-label="Search jobs"
+                    />
                 </div>
 
-                {/* Filters */}
-                <div className="mt-10 rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+                <select
+                    className="light-field light-select"
+                    value={location}
+                    onChange={(event) => setLocation(event.target.value)}
+                    aria-label="Filter by location"
+                >
+                    {locations.map((item) => (
+                        <option key={item} value={item}>
+                            {item === 'all' ? 'All locations' : item}
+                        </option>
+                    ))}
+                </select>
+            </section>
 
-                    <div className="flex flex-col gap-4 md:flex-row">
+            {!loading && !error && (
+                <div className="jobs-result-summary">
+                    <span>
+                        {filteredJobs.length}{' '}
+                        {filteredJobs.length === 1 ? 'opportunity' : 'opportunities'}
+                    </span>
 
-                        <div className="relative flex-1">
-                            <input
-                                type="text"
-                                value={search}
-                                onChange={(event) =>
-                                    setSearch(event.target.value)
-                                }
-                                placeholder="Search jobs, companies, or skills..."
-                                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500"
-                            />
-                        </div>
-
-                        <select
-                            value={location}
-                            onChange={(event) =>
-                                setLocation(event.target.value)
-                            }
-                            className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-300 outline-none focus:border-blue-500"
+                    {(search || location !== 'all') && (
+                        <button
+                            className="quiet-light-button"
+                            type="button"
+                            onClick={() => {
+                                setSearch('');
+                                setLocation('all');
+                            }}
                         >
-                            {locations.map((item) => (
-                                <option
-                                    key={item}
-                                    value={item}
-                                >
-                                    {item === 'all'
-                                        ? 'All locations'
-                                        : item}
-                                </option>
-                            ))}
-                        </select>
-
-                    </div>
+                            Clear filters
+                        </button>
+                    )}
                 </div>
+            )}
 
-                {/* Content */}
-                <div className="mt-8">
+            {loading ? (
+                <div className="light-loading-state jobs-state">
+                    <span
+                        className="light-loading-spinner"
+                        aria-hidden="true"
+                    />
 
-                    {loading && (
-                        <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-10 text-center">
-                            <p className="text-slate-400">
-                                Loading opportunities...
-                            </p>
-                        </div>
-                    )}
+                    <h2>Finding open opportunities</h2>
 
-                    {!loading && error && (
-                        <div className="rounded-2xl border border-red-900/50 bg-red-950/20 p-6">
-                            <p className="text-sm text-red-400">
-                                {error}
-                            </p>
-                        </div>
-                    )}
+                    <p>
+                        Loading the latest roles for you.
+                    </p>
+                </div>
+            ) : error ? (
+                <div className="light-error-state jobs-state">
+                    <h2>We could not load jobs</h2>
 
-                    {!loading &&
-                        !error &&
-                        filteredJobs.length === 0 && (
-                            <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-12 text-center">
-                                <p className="text-lg font-semibold">
-                                    No jobs found
-                                </p>
+                    <p>{error}</p>
 
-                                <p className="mt-2 text-sm text-slate-500">
-                                    Try changing your search or location
-                                    filter.
-                                </p>
-                            </div>
-                        )}
+                    <button
+                        className="secondary-light-button"
+                        type="button"
+                        onClick={() => window.location.reload()}
+                    >
+                        Try again
+                    </button>
+                </div>
+            ) : !filteredJobs.length ? (
+                <div className="jobs-state">
+                    <EmptyState
+                        title="No jobs found"
+                        detail="Try changing your search terms or location filter."
+                        action={
+                            search || location !== 'all' ? (
+                                <button
+                                    className="primary-light-button"
+                                    type="button"
+                                    onClick={() => {
+                                        setSearch('');
+                                        setLocation('all');
+                                    }}
+                                >
+                                    Clear filters
+                                </button>
+                            ) : null
+                        }
+                    />
+                </div>
+            ) : (
+                <section className="job-discovery-grid">
+                    <div
+                        className="job-list"
+                        aria-label="Available jobs"
+                    >
+                        {filteredJobs.map((job) => {
+                            const requiredSkills = (
+                                job.requiredSkills ?? []
+                            )
+                                .map(getSkillName)
+                                .filter(Boolean);
 
-                    {!loading &&
-                        !error &&
-                        filteredJobs.length > 0 && (
-                            <div className="grid gap-5 lg:grid-cols-2">
+                            const preferredSkills = (
+                                job.preferredSkills ?? []
+                            )
+                                .map(getSkillName)
+                                .filter(Boolean);
 
-                                {filteredJobs.map((job) => (
-                                    <article
-                                        key={job._id}
-                                        className="group rounded-3xl border border-slate-800 bg-slate-900/60 p-6 transition hover:-translate-y-1 hover:border-slate-700 hover:bg-slate-900"
-                                    >
+                            const isSelected =
+                                selectedJob?._id === job._id;
 
-                                        <div className="flex items-start justify-between gap-5">
+                            return (
+                                <button
+                                    className={`job-card ${isSelected ? 'selected' : ''
+                                        }`}
+                                    type="button"
+                                    key={job._id}
+                                    onClick={() =>
+                                        setSelectedJobId(job._id)
+                                    }
+                                >
+                                    <span className="company-initial">
+                                        {job.company
+                                            ?.charAt(0)
+                                            ?.toUpperCase() || 'J'}
+                                    </span>
 
-                                            <div className="flex gap-4">
+                                    <span className="job-card-content">
+                                        <strong>
+                                            {job.title || 'Untitled role'}
+                                        </strong>
 
-                                                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-500/10 text-lg font-bold text-blue-400">
-                                                    {job.company
-                                                        ?.charAt(0)
-                                                        ?.toUpperCase() || 'J'}
-                                                </div>
+                                        <span>
+                                            {job.company || 'Company'}
+                                        </span>
 
-                                                <div>
-                                                    <h2 className="text-xl font-semibold">
-                                                        {job.title}
-                                                    </h2>
+                                        <span className="job-card-meta">
+                                            {job.location || 'Remote'} ·{' '}
+                                            {job.employmentType ||
+                                                'Full-time'}
+                                        </span>
 
-                                                    <p className="mt-1 text-sm text-slate-400">
-                                                        {job.company}
-                                                    </p>
-                                                </div>
+                                        {requiredSkills.length > 0 && (
+                                            <span className="job-card-skills">
+                                                {requiredSkills
+                                                    .slice(0, 3)
+                                                    .map((skill) => (
+                                                        <span
+                                                            className="mini-skill-chip"
+                                                            key={skill}
+                                                        >
+                                                            {skill}
+                                                        </span>
+                                                    ))}
 
-                                            </div>
-
-                                            <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-400">
-                                                {job.status || 'open'}
+                                                {requiredSkills.length > 3 && (
+                                                    <span className="mini-skill-chip">
+                                                        +
+                                                        {requiredSkills.length -
+                                                            3}
+                                                    </span>
+                                                )}
                                             </span>
+                                        )}
+                                    </span>
 
+                                    <span
+                                        className="job-card-arrow"
+                                        aria-hidden="true"
+                                    >
+                                        ›
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    {selectedJob && (
+                        <article className="light-panel job-detail-panel">
+                            <div className="job-detail-heading">
+                                <div>
+                                    <span className="eyebrow-text">
+                                        OPEN OPPORTUNITY
+                                    </span>
+
+                                    <h2>
+                                        {selectedJob.title ||
+                                            'Untitled role'}
+                                    </h2>
+
+                                    <p>
+                                        {selectedJob.company ||
+                                            'Company'}
+                                    </p>
+                                </div>
+
+                                <span className="open-job-badge">
+                                    Open role
+                                </span>
+                            </div>
+
+                            <div className="job-detail-meta">
+                                <span>
+                                    <b aria-hidden="true">LOC</b>
+                                    {selectedJob.location || 'Remote'}
+                                </span>
+
+                                <span>
+                                    <b aria-hidden="true">TYPE</b>
+                                    {selectedJob.employmentType || 'Full-time'}
+                                </span>
+
+                                <span>
+                                    <b aria-hidden="true">EXP</b>
+                                    {selectedJob.experienceLevel || 'Any level'}
+                                </span>
+                            </div>
+
+                            {selectedJob.description && (
+                                <section className="detail-section">
+                                    <h3>About the role</h3>
+
+                                    <p className="job-description">
+                                        {selectedJob.description}
+                                    </p>
+                                </section>
+                            )}
+
+                            <section className="detail-section">
+                                <div className="detail-section-heading">
+                                    <h3>Required skills</h3>
+
+                                    <span>
+                                        {(
+                                            selectedJob.requiredSkills ??
+                                            []
+                                        ).length}{' '}
+                                        skills
+                                    </span>
+                                </div>
+
+                                <div className="skill-chip-wrap">
+                                    {(
+                                        selectedJob.requiredSkills ?? []
+                                    ).length ? (
+                                        selectedJob.requiredSkills
+                                            .map(getSkillName)
+                                            .filter(Boolean)
+                                            .map((skill) => (
+                                                <span
+                                                    className="skill-chip"
+                                                    key={skill}
+                                                >
+                                                    ✓ {skill}
+                                                </span>
+                                            ))
+                                    ) : (
+                                        <span className="detail-muted">
+                                            No required skills listed.
+                                        </span>
+                                    )}
+                                </div>
+                            </section>
+
+                            {(
+                                selectedJob.preferredSkills ?? []
+                            ).length > 0 && (
+                                    <section className="detail-section">
+                                        <div className="detail-section-heading">
+                                            <h3>Preferred skills</h3>
+
+                                            <span>
+                                                {
+                                                    selectedJob
+                                                        .preferredSkills
+                                                        .length
+                                                }{' '}
+                                                skills
+                                            </span>
                                         </div>
 
-                                        <p className="mt-6 line-clamp-3 text-sm leading-6 text-slate-400">
-                                            {job.description}
-                                        </p>
-
-                                        <div className="mt-5 flex flex-wrap gap-2">
-
-                                            {job.requiredSkills?.map(
-                                                (skill) => (
+                                        <div className="skill-chip-wrap">
+                                            {selectedJob.preferredSkills
+                                                .map(getSkillName)
+                                                .filter(Boolean)
+                                                .map((skill) => (
                                                     <span
+                                                        className="skill-chip optional"
                                                         key={skill}
-                                                        className="rounded-lg border border-blue-500/10 bg-blue-500/5 px-2.5 py-1 text-xs text-blue-300"
                                                     >
                                                         {skill}
                                                     </span>
-                                                )
-                                            )}
-
+                                                ))}
                                         </div>
+                                    </section>
+                                )}
 
-                                        <div className="mt-6 flex flex-wrap gap-4 border-t border-slate-800 pt-5 text-xs text-slate-500">
-
-                                            <span>
-                                                📍 {job.location || 'Remote'}
-                                            </span>
-
-                                            <span>
-                                                💼 {job.employmentType || 'Any type'}
-                                            </span>
-
-                                            <span>
-                                                ◈ {job.experienceLevel || 'Any level'}
-                                            </span>
-
-                                        </div>
-
-                                        <button
-                                            onClick={() => {
-                                                window.location.href = `/jobs/${job._id}`;
-                                            }}
-                                            className="mt-6 w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold transition hover:bg-blue-500"
-                                        >
-                                            View opportunity
-                                        </button>
-
-                                    </article>
-                                ))}
-
-                            </div>
-                        )}
-
-                </div>
-
-            </div>
-        </div>
+                            <button
+                                className="primary-light-button full-width-action"
+                                type="button"
+                                onClick={() =>
+                                    openJob(selectedJob._id)
+                                }
+                            >
+                                Check your match →
+                            </button>
+                        </article>
+                    )}
+                </section>
+            )}
+        </WorkspaceShell>
     );
 }
 

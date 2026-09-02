@@ -1,482 +1,1037 @@
-import { useEffect, useRef, useState } from 'react';
-
-import { useAuth } from '../context/AuthContext';
 import {
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react';
+
+import {
+    deleteResume,
     getMyResumes,
     uploadResume,
 } from '../api/resumes';
 
-function Resumes() {
-    const { user, logout } = useAuth();
+import {
+    EmptyState,
+    WorkspaceShell,
+} from '../components/WorkspaceShell';
 
-    const [resumes, setResumes] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [uploading, setUploading] = useState(false);
-    const [error, setError] = useState('');
+import { useAuth } from '../context/AuthContext';
 
-    const fileInputRef = useRef(null);
 
-    const navigate = (path) => {
-        window.location.href = path;
-    };
+function getResumeId(resume) {
+    return (
+        resume?.id ??
+        resume?._id ??
+        ''
+    );
+}
 
-    const loadResumes = async () => {
-        try {
-            setLoading(true);
-            setError('');
 
-            const token = localStorage.getItem('token');
-            const data = await getMyResumes(token);
+function getSkillName(skill) {
+    if (typeof skill === 'string') {
+        return skill;
+    }
 
-            setResumes(data.resumes || []);
-        } catch (err) {
-            setError(
-                err.message || 'Unable to load resumes'
+    return skill?.name || '';
+}
+
+
+function getSkillCategory(skill) {
+    if (
+        typeof skill === 'object' &&
+        skill?.category
+    ) {
+        return String(
+            skill.category
+        );
+    }
+
+    return 'Skill';
+}
+
+
+function formatSkillName(skill) {
+    const name =
+        getSkillName(skill);
+
+    if (!name) {
+        return 'Unknown skill';
+    }
+
+    const normalized =
+        name
+            .toLowerCase()
+            .trim()
+            .replace(
+                /[.\s_-]+/g,
+                ''
             );
-        } finally {
-            setLoading(false);
-        }
+
+    const labels = {
+        nodejs: 'Node.js',
+        nextjs: 'Next.js',
+        tailwindcss:
+            'Tailwind CSS',
+        restapi: 'REST APIs',
+        mongodb: 'MongoDB',
+        mysql: 'MySQL',
+        javascript:
+            'JavaScript',
+        typescript:
+            'TypeScript',
     };
-
-    useEffect(() => {
-        loadResumes();
-    }, []);
-
-    const handleUpload = async (event) => {
-        const file = event.target.files?.[0];
-
-        if (!file) {
-            return;
-        }
-
-        if (
-            file.type !== 'application/pdf' &&
-            !file.name.toLowerCase().endsWith('.pdf')
-        ) {
-            setError('Please upload a PDF resume.');
-            event.target.value = '';
-            return;
-        }
-
-        try {
-            setUploading(true);
-            setError('');
-
-            const token = localStorage.getItem('token');
-
-            await uploadResume(token, file);
-
-            await loadResumes();
-        } catch (err) {
-            setError(
-                err.message || 'Unable to upload resume'
-            );
-        } finally {
-            setUploading(false);
-            event.target.value = '';
-        }
-    };
-
-    const latestResume = resumes[0];
 
     return (
-        <div className="candidate-app">
-            <aside className="sidebar">
-                <div className="brand">
-                    <div className="brand-mark">S</div>
+        labels[normalized] ||
+        name
+    );
+}
 
-                    <div>
-                        <div className="brand-name">
-                            Smart Resume
-                        </div>
 
-                        <div className="brand-subtitle">
-                            MATCHER
-                        </div>
-                    </div>
-                </div>
+function getFileType(resume) {
+    const fileType =
+        String(
+            resume?.fileType ||
+            ''
+        ).toLowerCase();
 
-                <div className="sidebar-section">
-                    <span className="sidebar-label">
-                        WORKSPACE
-                    </span>
+    const fileName =
+        String(
+            resume?.fileName ||
+            ''
+        ).toLowerCase();
+
+    if (
+        fileType.includes('pdf') ||
+        fileName.endsWith('.pdf')
+    ) {
+        return 'PDF';
+    }
+
+    if (
+        fileType.includes('word') ||
+        fileType.includes(
+            'officedocument'
+        ) ||
+        fileName.endsWith('.docx')
+    ) {
+        return 'DOCX';
+    }
+
+    return fileType
+        ? fileType
+            .split('/')
+            .pop()
+            .toUpperCase()
+        : 'FILE';
+}
+
+
+function formatDate(dateValue) {
+    if (!dateValue) {
+        return 'Recently uploaded';
+    }
+
+    const date =
+        new Date(dateValue);
+
+    if (
+        Number.isNaN(
+            date.getTime()
+        )
+    ) {
+        return 'Recently uploaded';
+    }
+
+    return date.toLocaleDateString(
+        'en-IN',
+        {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+        }
+    );
+}
+
+function getFileUrl(fileUrl) {
+    if (!fileUrl) {
+        return '';
+    }
+
+    // If backend already returned a complete URL,
+    // use it directly.
+    if (
+        fileUrl.startsWith('http://') ||
+        fileUrl.startsWith('https://')
+    ) {
+        return fileUrl;
+    }
+
+    const apiBaseUrl = String(
+        import.meta.env.VITE_API_BASE_URL || ''
+    ).replace(/\/+$/, '');
+
+    // Remove /api or /api/v1 from the API base URL.
+    const serverBaseUrl = apiBaseUrl
+        .replace(/\/api\/v1$/, '')
+        .replace(/\/api$/, '');
+
+    const normalizedFileUrl =
+        fileUrl.startsWith('/')
+            ? fileUrl
+            : `/${fileUrl}`;
+
+    return `${serverBaseUrl}${normalizedFileUrl}`;
+}
+
+function Resumes() {
+    const { token } =
+        useAuth();
+
+    const [
+        resumes,
+        setResumes,
+    ] = useState([]);
+
+    const [
+        loading,
+        setLoading,
+    ] = useState(true);
+
+    const [
+        uploading,
+        setUploading,
+    ] = useState(false);
+
+    const [
+        deletingId,
+        setDeletingId,
+    ] = useState(null);
+
+    const [
+        error,
+        setError,
+    ] = useState('');
+
+    const [
+        success,
+        setSuccess,
+    ] = useState('');
+
+    const fileInputRef =
+        useRef(null);
+
+
+    const navigate = (path) => {
+        window.location.href =
+            path;
+    };
+
+
+    const loadResumes =
+        async () => {
+            if (!token) {
+                setResumes([]);
+                setLoading(false);
+                return;
+            }
+
+            try {
+                setLoading(true);
+                setError('');
+
+                const data =
+                    await getMyResumes(
+                        token
+                    );
+
+                setResumes(
+                    data.resumes ??
+                    []
+                );
+            } catch (
+                requestError
+            ) {
+                console.error(
+                    'Load resumes error:',
+                    requestError
+                );
+
+                setError(
+                    requestError.message ||
+                    'Unable to load resumes'
+                );
+            } finally {
+                setLoading(false);
+            }
+        };
+
+
+    useEffect(() => {
+        void loadResumes();
+    }, [token]);
+
+
+    const handleUpload =
+        async (event) => {
+            const file =
+                event.target
+                    .files?.[0];
+
+            if (!file) {
+                return;
+            }
+
+            const isPdf =
+                file.type ===
+                    'application/pdf' ||
+                file.name
+                    .toLowerCase()
+                    .endsWith('.pdf');
+
+            if (!isPdf) {
+                setError(
+                    'Please upload a PDF resume.'
+                );
+
+                setSuccess('');
+
+                event.target.value =
+                    '';
+
+                return;
+            }
+
+            try {
+                setUploading(true);
+                setError('');
+                setSuccess('');
+
+                await uploadResume(
+                    token,
+                    file
+                );
+
+                await loadResumes();
+
+                setSuccess(
+                    'Resume uploaded and analyzed successfully.'
+                );
+            } catch (
+                uploadError
+            ) {
+                console.error(
+                    'Resume upload error:',
+                    uploadError
+                );
+
+                setError(
+                    uploadError.message ||
+                    'Unable to upload resume'
+                );
+            } finally {
+                setUploading(false);
+
+                event.target.value =
+                    '';
+            }
+        };
+
+
+    const handleDelete =
+        async (resume) => {
+            const resumeId =
+                getResumeId(
+                    resume
+                );
+
+            if (!resumeId) {
+                setError(
+                    'Unable to identify this resume.'
+                );
+
+                return;
+            }
+
+            const confirmed =
+                window.confirm(
+                    `Delete "${resume.fileName}"?\n\nThis resume will be permanently removed from your resume library.`
+                );
+
+            if (!confirmed) {
+                return;
+            }
+
+            try {
+                setDeletingId(
+                    resumeId
+                );
+
+                setError('');
+                setSuccess('');
+
+                await deleteResume(
+                    token,
+                    resumeId
+                );
+
+                setResumes(
+                    (current) =>
+                        current.filter(
+                            (item) =>
+                                getResumeId(
+                                    item
+                                ) !==
+                                resumeId
+                        )
+                );
+
+                setSuccess(
+                    'Resume deleted successfully.'
+                );
+            } catch (
+                deleteError
+            ) {
+                console.error(
+                    'Delete resume error:',
+                    deleteError
+                );
+
+                setError(
+                    deleteError.message ||
+                    'Unable to delete resume'
+                );
+            } finally {
+                setDeletingId(null);
+            }
+        };
+
+
+    const handleViewResume = (resume) => {
+    if (!resume?.fileUrl) {
+        setError(
+            'Resume file is not available.'
+        );
+        return;
+    }
+
+    const fileUrl = getFileUrl(
+        resume.fileUrl
+    );
+
+    if (!fileUrl) {
+        setError(
+            'Unable to create resume file URL.'
+        );
+        return;
+    }
+
+    window.open(
+        fileUrl,
+        '_blank',
+        'noopener,noreferrer'
+    );
+};
+
+
+    const latestResume =
+        resumes[0] ?? null;
+
+
+    const latestSkills =
+        useMemo(
+            () =>
+                latestResume?.skills ??
+                [],
+            [latestResume]
+        );
+
+
+    const uniqueSkills =
+        useMemo(() => {
+            const names =
+                latestSkills
+                    .map(
+                        getSkillName
+                    )
+                    .filter(Boolean)
+                    .map(
+                        (name) =>
+                            name
+                                .toLowerCase()
+                                .trim()
+                    );
+
+            return new Set(
+                names
+            ).size;
+        }, [latestSkills]);
+
+
+    return (
+        <WorkspaceShell
+            title="My Resumes"
+            subtitle="Manage your resume profiles and keep your skills ready for matching."
+            action={
+                <>
+                    <input
+                        ref={
+                            fileInputRef
+                        }
+                        type="file"
+                        accept=".pdf,application/pdf"
+                        onChange={
+                            handleUpload
+                        }
+                        hidden
+                    />
 
                     <button
-                        className="nav-item"
-                        onClick={() => navigate('/')}
+                        className="primary-light-button"
+                        type="button"
+                        onClick={() =>
+                            fileInputRef.current?.click()
+                        }
+                        disabled={
+                            uploading
+                        }
                     >
-                        <span className="nav-icon">◆</span>
-                        Dashboard
+                        {uploading
+                            ? 'Uploading…'
+                            : '＋ Upload resume'}
                     </button>
-
-                    <button
-                        className="nav-item"
-                        onClick={() => navigate('/jobs')}
-                    >
-                        <span className="nav-icon">○</span>
-                        Discover Jobs
-                    </button>
-
-                    <button
-                        className="nav-item"
-                        onClick={() => navigate('/applications')}
-                    >
-                        <span className="nav-icon">□</span>
-                        Applications
-                    </button>
-
-                    <button className="nav-item active">
-                        <span className="nav-icon">△</span>
-                        My Resumes
-                    </button>
+                </>
+            }
+        >
+            {error && (
+                <div className="ui-message ui-message-error">
+                    {error}
                 </div>
+            )}
 
-                <div className="sidebar-section account-section">
-                    <span className="sidebar-label">
-                        ACCOUNT
-                    </span>
-
-                    <button className="nav-item">
-                        <span className="nav-icon">⚙</span>
-                        Settings
-                    </button>
+            {success && (
+                <div className="ui-message ui-message-success">
+                    {success}
                 </div>
+            )}
 
-                <div className="sidebar-profile">
-                    <div className="avatar">
-                        {user?.name?.charAt(0)?.toUpperCase() || 'J'}
-                    </div>
 
-                    <div className="profile-info">
-                        <strong>
-                            {user?.name || 'Candidate'}
-                        </strong>
+            {loading ? (
+                <div className="light-loading-state">
 
-                        <span>Candidate</span>
-                    </div>
+                    <span
+                        className="light-loading-spinner"
+                        aria-hidden="true"
+                    />
 
-                    <button
-                        className="logout-icon"
-                        onClick={logout}
-                        title="Sign out"
-                    >
-                        ↪
-                    </button>
+                    <h2>
+                        Loading your resumes
+                    </h2>
+
+                    <p>
+                        Preparing your resume
+                        profiles and detected
+                        skills.
+                    </p>
+
                 </div>
-            </aside>
+            ) : (
+                <>
+                    {/* INTRO */}
 
-            <main className="dashboard-main">
-                <header className="topbar">
-                    <div>
-                        <div className="eyebrow">
-                            CANDIDATE WORKSPACE
-                        </div>
+                    <section className="resume-intro-panel light-panel">
 
-                        <p>
-                            Manage your resume profiles
-                        </p>
-                    </div>
+                        <div className="resume-intro-copy">
 
-                    <div className="topbar-actions">
-                        <button
-                            className="search-button"
-                            onClick={() => navigate('/jobs')}
-                        >
-                            <span>⌕</span>
-                            Search jobs
-                        </button>
-
-                        <button className="icon-button">
-                            ♧
-                        </button>
-
-                        <button className="top-avatar">
-                            {user?.name?.charAt(0)?.toUpperCase() || 'J'}
-                        </button>
-                    </div>
-                </header>
-
-                <div className="dashboard-content">
-                    <section className="hero-card">
-                        <div className="hero-glow" />
-
-                        <div className="hero-content">
-                            <div className="status-pill">
-                                <span />
+                            <span className="eyebrow-text">
                                 RESUME INTELLIGENCE
-                            </div>
+                            </span>
 
-                            <h1>
-                                Build your strongest profile.
-                            </h1>
+                            <h2>
+                                Build your strongest
+                                profile.
+                            </h2>
 
                             <p>
-                                Upload multiple resume versions and
-                                let Smart Resume Matcher analyze the
-                                skills available for your applications.
+                                Upload multiple resume
+                                versions and keep them
+                                ready for different job
+                                opportunities. Your
+                                resume is automatically
+                                parsed for matching.
                             </p>
+
                         </div>
 
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept=".pdf,application/pdf"
-                            onChange={handleUpload}
-                            style={{ display: 'none' }}
-                        />
 
-                        <button
-                            className="hero-action"
-                            onClick={() =>
-                                fileInputRef.current?.click()
-                            }
-                            disabled={uploading}
-                        >
-                            {uploading
-                                ? 'Uploading...'
-                                : '+ Upload Resume'}
-                        </button>
+                        <div className="resume-intro-visual">
+
+                            <div className="resume-intro-circle">
+
+                                <span>
+                                    {resumes.length}
+                                </span>
+
+                                <small>
+                                    {resumes.length === 1
+                                        ? 'RESUME'
+                                        : 'RESUMES'}
+                                </small>
+
+                            </div>
+
+                        </div>
+
                     </section>
 
-                    <section className="metrics-grid">
-                        <div className="metric-card featured">
-                            <div className="metric-header">
-                                <span>RESUMES</span>
-                                <div className="metric-icon">
-                                    △
-                                </div>
+
+                    {/* METRICS */}
+
+                    <section className="metrics-grid resumes-metrics">
+
+                        <article className="metric-card metric-card-green">
+
+                            <div className="metric-card-icon">
+                                ▤
                             </div>
 
-                            <strong>{resumes.length}</strong>
+                            <div className="metric-card-content">
 
-                            <small>
-                                Uploaded profiles
-                            </small>
-                        </div>
+                                <p>
+                                    Resumes
+                                </p>
 
-                        <div className="metric-card">
-                            <div className="metric-header">
-                                <span>SKILLS DETECTED</span>
-                                <div className="metric-icon">
-                                    ◇
-                                </div>
+                                <strong>
+                                    {resumes.length}
+                                </strong>
+
+                                <small>
+                                    Uploaded profiles
+                                </small>
+
                             </div>
 
-                            <strong>
-                                {latestResume?.skills?.length || 0}
-                            </strong>
+                        </article>
 
-                            <small>
-                                From latest resume
-                            </small>
-                        </div>
 
-                        <div className="metric-card">
-                            <div className="metric-header">
-                                <span>FORMAT</span>
-                                <div className="metric-icon">
-                                    □
-                                </div>
+                        <article className="metric-card metric-card-blue">
+
+                            <div className="metric-card-icon">
+                                ✦
                             </div>
 
-                            <strong>
-                                {latestResume
-                                    ? latestResume.fileType
-                                        ?.includes('pdf')
-                                        ? 'PDF'
-                                        : 'FILE'
-                                    : '—'}
-                            </strong>
+                            <div className="metric-card-content">
 
-                            <small>
-                                Latest resume format
-                            </small>
-                        </div>
+                                <p>
+                                    Skills detected
+                                </p>
 
-                        <div className="metric-card">
-                            <div className="metric-header">
-                                <span>PROFILE</span>
-                                <div className="metric-icon">
-                                    ✦
-                                </div>
+                                <strong>
+                                    {uniqueSkills}
+                                </strong>
+
+                                <small>
+                                    From latest resume
+                                </small>
+
                             </div>
 
-                            <strong className="blue-number">
-                                {latestResume ? 'ACTIVE' : 'EMPTY'}
-                            </strong>
+                        </article>
 
-                            <small>
-                                Resume availability
-                            </small>
-                        </div>
+
+                        <article className="metric-card metric-card-purple">
+
+                            <div className="metric-card-icon">
+                                □
+                            </div>
+
+                            <div className="metric-card-content">
+
+                                <p>
+                                    Format
+                                </p>
+
+                                <strong>
+                                    {latestResume
+                                        ? getFileType(
+                                            latestResume
+                                        )
+                                        : '—'}
+                                </strong>
+
+                                <small>
+                                    Latest resume format
+                                </small>
+
+                            </div>
+
+                        </article>
+
+
+                        <article className="metric-card metric-card-orange">
+
+                            <div className="metric-card-icon">
+                                ✓
+                            </div>
+
+                            <div className="metric-card-content">
+
+                                <p>
+                                    Profile
+                                </p>
+
+                                <strong>
+                                    {latestResume
+                                        ? 'ACTIVE'
+                                        : 'EMPTY'}
+                                </strong>
+
+                                <small>
+                                    Resume availability
+                                </small>
+
+                            </div>
+
+                        </article>
+
                     </section>
 
-                    {error && (
-                        <div className="panel">
-                            <div className="empty-state">
-                                <span>!</span>
-                                <p>{error}</p>
-                            </div>
-                        </div>
-                    )}
 
-                    <section className="panel recent-panel">
-                        <div className="panel-header">
+                    {/* RESUME LIBRARY */}
+
+                    <section className="light-panel resume-library-panel">
+
+                        <div className="resume-section-header">
+
                             <div>
-                                <span className="panel-label">
+
+                                <span className="eyebrow-text">
                                     RESUME LIBRARY
                                 </span>
 
                                 <h2>
                                     Your resume profiles
                                 </h2>
+
+                                <p>
+                                    Keep different versions
+                                    available for different
+                                    job opportunities.
+                                </p>
+
                             </div>
 
-                            <span className="ai-badge">
-                                AI PARSED
+
+                            <span className="resume-library-count">
+                                {resumes.length}{' '}
+                                {resumes.length === 1
+                                    ? 'profile'
+                                    : 'profiles'}
                             </span>
+
                         </div>
 
-                        {loading ? (
-                            <div className="empty-state">
-                                <span>◌</span>
 
-                                <p>
-                                    Loading resumes...
-                                </p>
-                            </div>
-                        ) : resumes.length === 0 ? (
-                            <div className="empty-state">
-                                <span>△</span>
-
-                                <p>
-                                    No resumes uploaded yet.
-                                </p>
-
-                                <button
-                                    className="primary-button"
-                                    onClick={() =>
-                                        fileInputRef.current?.click()
-                                    }
-                                >
-                                    Upload your first resume
-                                </button>
-                            </div>
-                        ) : (
-                            <div className="application-list">
-                                {resumes.map((resume, index) => (
-                                    <div
-                                        className="application-row"
-                                        key={resume.id || resume._id}
+                        {resumes.length === 0 ? (
+                            <EmptyState
+                                title="No resumes uploaded yet"
+                                detail="Upload your first PDF resume and we'll extract the skills automatically."
+                                action={
+                                    <button
+                                        className="primary-light-button"
+                                        type="button"
+                                        onClick={() =>
+                                            fileInputRef.current?.click()
+                                        }
                                     >
-                                        <div className="company-avatar">
-                                            PDF
-                                        </div>
+                                        ＋ Upload your first
+                                        resume
+                                    </button>
+                                }
+                            />
+                        ) : (
+                            <div className="resume-list">
 
-                                        <div className="application-info">
-                                            <strong>
-                                                {resume.fileName}
-                                            </strong>
+                                {resumes.map(
+                                    (
+                                        resume,
+                                        index
+                                    ) => {
+                                        const resumeId =
+                                            getResumeId(
+                                                resume
+                                            );
 
-                                            <span>
-                                                {resume.skills?.length || 0}{' '}
-                                                skills detected
-                                                {' · '}
-                                                {resume.fileType ||
-                                                    'PDF'}
-                                            </span>
-                                        </div>
+                                        const skillCount =
+                                            resume.skills
+                                                ?.length ||
+                                            0;
 
-                                        <div className="application-match">
-                                            <span>
-                                                {index === 0
-                                                    ? 'LATEST'
-                                                    : 'PROFILE'}
-                                            </span>
+                                        const isLatest =
+                                            index ===
+                                            0;
 
-                                            <strong>
-                                                {resume.skills?.length || 0}
-                                            </strong>
-                                        </div>
+                                        const isDeleting =
+                                            deletingId ===
+                                            resumeId;
 
-                                        <span className="status-badge status-shortlisted">
-                                            AI PARSED
-                                        </span>
-                                    </div>
-                                ))}
+                                        return (
+                                            <article
+                                                className={`resume-card ${
+                                                    isLatest
+                                                        ? 'latest'
+                                                        : ''
+                                                }`}
+                                                key={
+                                                    resumeId ||
+                                                    `${resume.fileName}-${index}`
+                                                }
+                                            >
+
+                                                <div className="resume-file-icon">
+                                                    {getFileType(
+                                                        resume
+                                                    )}
+                                                </div>
+
+
+                                                <div className="resume-card-content">
+
+                                                    <div className="resume-card-title-row">
+
+                                                        <div>
+
+                                                            <div className="resume-card-name-line">
+
+                                                                <h3>
+                                                                    {resume.fileName ||
+                                                                        'Untitled resume'}
+                                                                </h3>
+
+                                                                {isLatest && (
+                                                                    <span className="resume-latest-badge">
+                                                                        LATEST
+                                                                    </span>
+                                                                )}
+
+                                                            </div>
+
+                                                            <p>
+                                                                Uploaded{' '}
+                                                                {formatDate(
+                                                                    resume.createdAt
+                                                                )}
+                                                            </p>
+
+                                                        </div>
+
+                                                    </div>
+
+
+                                                    <div className="resume-card-meta">
+
+                                                        <span>
+                                                            {skillCount}{' '}
+                                                            {skillCount ===
+                                                            1
+                                                                ? 'skill'
+                                                                : 'skills'}{' '}
+                                                            detected
+                                                        </span>
+
+                                                        <span>
+                                                            {getFileType(
+                                                                resume
+                                                            )}
+                                                        </span>
+
+                                                        <span>
+                                                            AI parsed
+                                                        </span>
+
+                                                    </div>
+
+                                                </div>
+
+
+                                                <div className="resume-card-count">
+
+                                                    <span>
+                                                        SKILLS
+                                                    </span>
+
+                                                    <strong>
+                                                        {skillCount}
+                                                    </strong>
+
+                                                </div>
+
+
+                                                <div className="resume-card-actions">
+
+                                                    <button
+                                                        type="button"
+                                                        className="resume-view-button"
+                                                        onClick={() =>
+                                                            handleViewResume(
+                                                                resume
+                                                            )
+                                                        }
+                                                        disabled={
+                                                            isDeleting
+                                                        }
+                                                    >
+                                                        View
+                                                    </button>
+
+
+                                                    <button
+                                                        type="button"
+                                                        className="resume-delete-button"
+                                                        onClick={() =>
+                                                            handleDelete(
+                                                                resume
+                                                            )
+                                                        }
+                                                        disabled={
+                                                            isDeleting
+                                                        }
+                                                    >
+                                                        {isDeleting
+                                                            ? 'Deleting…'
+                                                            : 'Delete'}
+                                                    </button>
+
+                                                </div>
+
+                                            </article>
+                                        );
+                                    }
+                                )}
+
                             </div>
                         )}
+
                     </section>
 
+
+                    {/* DETECTED SKILLS */}
+
                     {latestResume && (
-                        <section className="panel intelligence-panel">
-                            <div className="panel-header">
+                        <section className="light-panel detected-skills-panel">
+
+                            <div className="resume-section-header">
+
                                 <div>
-                                    <span className="panel-label">
+
+                                    <span className="eyebrow-text">
                                         LATEST PROFILE
                                     </span>
 
                                     <h2>
                                         Detected skills
                                     </h2>
+
+                                    <p>
+                                        Skills extracted from{' '}
+                                        <strong>
+                                            {
+                                                latestResume.fileName
+                                            }
+                                        </strong>
+                                        .
+                                    </p>
+
                                 </div>
+
+
+                                <span className="resume-library-count">
+                                    {latestSkills.length}{' '}
+                                    detected
+                                </span>
+
                             </div>
 
-                            <div className="skill-list">
-                                {latestResume.skills?.length > 0 ? (
-                                    latestResume.skills.map(
-                                        (skill, index) => {
+
+                            {latestSkills.length > 0 ? (
+                                <div className="detected-skill-grid">
+
+                                    {latestSkills.map(
+                                        (
+                                            skill,
+                                            index
+                                        ) => {
                                             const name =
-                                                typeof skill ===
-                                                'string'
-                                                    ? skill
-                                                    : skill?.name ||
-                                                      'Unknown';
+                                                getSkillName(
+                                                    skill
+                                                );
+
+                                            if (!name) {
+                                                return null;
+                                            }
 
                                             return (
                                                 <div
-                                                    className="skill-row"
+                                                    className="detected-skill-card"
                                                     key={
                                                         skill?._id ||
                                                         `${name}-${index}`
                                                     }
                                                 >
+
+                                                    <div className="detected-skill-icon">
+                                                        ✓
+                                                    </div>
+
                                                     <div>
+
                                                         <span>
-                                                            {skill?.category?.toUpperCase() ||
-                                                                'SKILL'}
+                                                            {getSkillCategory(
+                                                                skill
+                                                            ).toUpperCase()}
                                                         </span>
 
                                                         <strong>
-                                                            {name}
+                                                            {formatSkillName(
+                                                                skill
+                                                            )}
                                                         </strong>
+
                                                     </div>
 
-                                                    <div className="skill-bar">
-                                                        <div
-                                                            style={{
-                                                                width: '75%',
-                                                            }}
-                                                        />
-                                                    </div>
                                                 </div>
                                             );
                                         }
-                                    )
-                                ) : (
-                                    <div className="empty-state">
-                                        <p>
-                                            No skills detected.
-                                        </p>
-                                    </div>
-                                )}
-                            </div>
+                                    )}
+
+                                </div>
+                            ) : (
+                                <div className="resume-no-skills">
+
+                                    <span>
+                                        No skills detected
+                                    </span>
+
+                                    <p>
+                                        Try uploading a more
+                                        detailed resume with
+                                        your technical
+                                        experience and skills.
+                                    </p>
+
+                                </div>
+                            )}
+
                         </section>
                     )}
-                </div>
-            </main>
-        </div>
+
+                </>
+            )}
+
+        </WorkspaceShell>
     );
 }
+
 
 export default Resumes;

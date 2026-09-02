@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
-import { useAuth } from '../context/AuthContext';
+import {
+    applyToJob,
+    getMyApplications,
+} from '../api/applications';
 
 import {
     calculateMatch,
@@ -10,48 +13,56 @@ import {
 import { getMyResumes } from '../api/resumes';
 
 import {
-    applyToJob,
-    getMyApplications,
-} from '../api/applications';
+    EmptyState,
+    MatchRing,
+    StatusPill,
+    WorkspaceShell,
+} from '../components/WorkspaceShell';
 
-function getSkillLabel(skill) {
+import { useAuth } from '../context/AuthContext';
+
+const skillLabels = {
+    nodejs: 'Node.js',
+    nextjs: 'Next.js',
+    tailwindcss: 'Tailwind CSS',
+    restapi: 'REST APIs',
+};
+
+function getSkillName(skill) {
     if (typeof skill === 'string') {
         return skill;
     }
 
-    if (skill && typeof skill === 'object') {
-        return (
-            skill.name ||
-            skill.label ||
-            skill.title ||
-            skill.category ||
-            skill._id ||
-            'Unknown skill'
-        );
-    }
-
-    return String(skill ?? '');
+    return skill?.name || '';
 }
 
-function getSkillKey(skill, index) {
-    if (typeof skill === 'object' && skill !== null) {
-        return skill._id || skill.name || skill.category || `skill-${index}`;
-    }
+function formatSkill(skill) {
+    const skillName = getSkillName(skill);
 
-    return `${skill}-${index}`;
+    const normalized = skillName
+        .toLowerCase()
+        .trim()
+        .replace(/[.\s_-]+/g, '');
+
+    return skillLabels[normalized] || skillName;
+}
+
+function getResumeId(resume) {
+    return resume?.id ?? resume?._id ?? '';
 }
 
 function JobDetails() {
     const { token } = useAuth();
 
-    const jobId = window.location.pathname.split('/')[2];
+    const pathParts = window.location.pathname.split('/');
+    const jobId = pathParts[2];
 
     const [job, setJob] = useState(null);
     const [resumes, setResumes] = useState([]);
     const [selectedResume, setSelectedResume] = useState('');
-
     const [match, setMatch] = useState(null);
-    const [existingApplication, setExistingApplication] = useState(null);
+    const [existingApplication, setExistingApplication] =
+        useState(null);
 
     const [loading, setLoading] = useState(true);
     const [matching, setMatching] = useState(false);
@@ -61,7 +72,9 @@ function JobDetails() {
     const [success, setSuccess] = useState('');
 
     useEffect(() => {
-        const loadData = async () => {
+        let cancelled = false;
+
+        async function loadData() {
             try {
                 setLoading(true);
                 setError('');
@@ -76,113 +89,133 @@ function JobDetails() {
                     getMyApplications(token),
                 ]);
 
-                const availableResumes =
-                    resumeData.resumes || [];
-
-                const applications =
-                    applicationData.applications || [];
+                const availableResumes = resumeData.resumes ?? [];
+                const applications = applicationData.applications ?? [];
 
                 const existing = applications.find(
                     (application) =>
                         String(
-                            application.job?._id ||
-                            application.job
+                            application.job?._id ?? application.job
                         ) === String(jobId)
                 );
 
-                setJob(jobData.job);
-                setResumes(availableResumes);
-
-                if (existing) {
-                    setExistingApplication(existing);
-                }
-
-                /*
-                 * Prefer the resume used for the existing
-                 * application. Otherwise use the newest resume.
-                 */
                 const applicationResumeId =
-                    existing?.resume?._id ||
-                    existing?.resume;
+                    existing?.resume?._id ?? existing?.resume;
 
                 const preferredResume =
                     availableResumes.find(
                         (resume) =>
-                            String(
-                                resume.id || resume._id
-                            ) === String(applicationResumeId)
-                    ) || availableResumes[0];
+                            String(getResumeId(resume)) ===
+                            String(applicationResumeId)
+                    ) ?? availableResumes[0];
 
-                if (preferredResume) {
-                    const resumeId =
-                        preferredResume.id ||
-                        preferredResume._id;
+                if (!cancelled) {
+                    setJob(jobData.job);
+                    setResumes(availableResumes);
+                    setExistingApplication(existing ?? null);
 
-                    setSelectedResume(resumeId);
+                    setSelectedResume(
+                        getResumeId(preferredResume)
+                    );
 
-                    /*
-                     * If the candidate has already applied,
-                     * immediately calculate the full match
-                     * so the page doesn't show a fake 0%.
-                     */
-                    if (existing) {
-                        try {
-                            const matchData =
-                                await calculateMatch(
-                                    token,
-                                    resumeId,
-                                    jobId
-                                );
-
-                            setMatch(matchData.match);
-                        } catch (matchError) {
-                            console.error(
-                                'Unable to restore match:',
-                                matchError
-                            );
-
-                            /*
-                             * At minimum preserve the stored
-                             * application score.
-                             */
-                            if (
-                                existing.matchScore !== null &&
-                                existing.matchScore !== undefined
-                            ) {
-                                setMatch({
-                                    score: existing.matchScore,
-                                    required: {
-                                        total: 0,
-                                        matched: 0,
-                                        coverage: 0,
-                                        matchedSkills: [],
-                                        missingSkills: [],
-                                    },
-                                    preferred: {
-                                        total: 0,
-                                        matched: 0,
-                                        coverage: 0,
-                                        matchedSkills: [],
-                                        missingSkills: [],
-                                    },
-                                });
-                            }
-                        }
+                    // Preserve the stored score for an existing application.
+                    if (
+                        existing &&
+                        existing.matchScore !== undefined &&
+                        existing.matchScore !== null
+                    ) {
+                        setMatch({
+                            score: Number(existing.matchScore),
+                            required:
+                                existing.matchAnalysis?.required ?? null,
+                            preferred:
+                                existing.matchAnalysis?.preferred ?? null,
+                        });
                     }
                 }
-            } catch (err) {
-                setError(
-                    err.message || 'Unable to load job'
-                );
+            } catch (requestError) {
+                if (!cancelled) {
+                    setError(
+                        requestError.message ||
+                        'Unable to load this job'
+                    );
+                }
             } finally {
-                setLoading(false);
+                if (!cancelled) {
+                    setLoading(false);
+                }
             }
-        };
+        }
 
         if (token && jobId) {
-            loadData();
+            void loadData();
+        } else {
+            setLoading(false);
         }
-    }, [token, jobId]);
+
+        return () => {
+            cancelled = true;
+        };
+    }, [jobId, token]);
+
+    const resumeOptions = useMemo(
+        () =>
+            resumes
+                .map((resume) => ({
+                    id: getResumeId(resume),
+                    label:
+                        resume.fileName || 'Untitled resume',
+                }))
+                .filter((resume) => resume.id),
+        [resumes]
+    );
+
+    const requiredSkills = useMemo(
+        () =>
+            (job?.requiredSkills ?? [])
+                .map(getSkillName)
+                .filter(Boolean),
+        [job]
+    );
+
+    const preferredSkills = useMemo(
+        () =>
+            (job?.preferredSkills ?? [])
+                .map(getSkillName)
+                .filter(Boolean),
+        [job]
+    );
+
+    const matchedSkills = useMemo(() => {
+        const skills = [
+            ...(match?.required?.matchedSkills ?? []),
+            ...(match?.preferred?.matchedSkills ?? []),
+        ];
+
+        return [
+            ...new Set(
+                skills
+                    .map(getSkillName)
+                    .filter(Boolean)
+            ),
+        ];
+    }, [match]);
+
+    const missingRequiredSkills = useMemo(
+        () =>
+            (match?.required?.missingSkills ?? [])
+                .map(getSkillName)
+                .filter(Boolean),
+        [match]
+    );
+
+    const missingPreferredSkills = useMemo(
+        () =>
+            (match?.preferred?.missingSkills ?? [])
+                .map(getSkillName)
+                .filter(Boolean),
+        [match]
+    );
 
     const handleCalculateMatch = async () => {
         if (!selectedResume) {
@@ -201,10 +234,11 @@ function JobDetails() {
                 jobId
             );
 
-            setMatch(data.match);
-        } catch (err) {
+            setMatch(data.match ?? null);
+        } catch (matchError) {
             setError(
-                err.message || 'Unable to calculate match'
+                matchError.message ||
+                'Unable to calculate your match'
             );
         } finally {
             setMatching(false);
@@ -214,13 +248,6 @@ function JobDetails() {
     const handleApply = async () => {
         if (!selectedResume) {
             setError('Please select a resume first.');
-            return;
-        }
-
-        if (existingApplication) {
-            setError(
-                'You have already applied for this job.'
-            );
             return;
         }
 
@@ -235,457 +262,492 @@ function JobDetails() {
                 selectedResume
             );
 
-            setExistingApplication(
-                data.application || {
+            const application =
+                data.application ?? {
                     status: 'applied',
-                    matchScore: match?.score ?? null,
-                }
-            );
+                    matchScore: match?.score ?? 0,
+                };
+
+            setExistingApplication(application);
+
+            // Preserve calculated score after applying.
+            if (
+                application.matchScore !== undefined &&
+                application.matchScore !== null
+            ) {
+                setMatch((currentMatch) => ({
+                    ...(currentMatch ?? {}),
+                    score: Number(application.matchScore),
+                }));
+            }
 
             setSuccess(
                 data.message ||
                 'Application submitted successfully.'
             );
-        } catch (err) {
+        } catch (applicationError) {
             setError(
-                err.message ||
-                'Unable to submit application'
+                applicationError.message ||
+                'Unable to submit your application'
             );
         } finally {
             setApplying(false);
         }
     };
 
-    if (loading) {
-        return (
-            <div className="min-h-screen bg-[#050814] text-white flex items-center justify-center">
-                <div className="text-center">
-                    <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-slate-700 border-t-blue-500" />
-                    <p className="text-sm text-slate-400">
-                        Loading opportunity...
-                    </p>
-                </div>
-            </div>
-        );
-    }
-
-    if (error && !job) {
-        return (
-            <div className="min-h-screen bg-[#050814] text-white">
-                <div className="mx-auto max-w-5xl px-6 py-16">
-                    <div className="rounded-2xl border border-red-900/50 bg-red-950/20 p-6">
-                        <p className="text-red-400">
-                            {error}
-                        </p>
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    if (!job) {
-        return null;
-    }
-
-    const applicationStatus =
-        existingApplication?.status;
-
-    const statusLabel = {
-        applied: 'Application submitted',
-        shortlisted: 'Shortlisted',
-        interview: 'Interview stage',
-        rejected: 'Application not selected',
-        hired: 'Hired',
+    const goToJobs = () => {
+        window.location.href = '/jobs';
     };
 
-    const statusText =
-        statusLabel[applicationStatus] ||
-        'Application submitted';
+    const goToResumes = () => {
+        window.location.href = '/resumes';
+    };
 
     return (
-        <div className="min-h-screen bg-[#050814] text-white">
-
-            <main className="mx-auto max-w-6xl px-6 py-10 lg:px-10">
-
-                {/* Back */}
+        <WorkspaceShell
+            title={
+                loading
+                    ? 'Job match'
+                    : job?.title || 'Job match'
+            }
+            subtitle={
+                loading
+                    ? 'Loading job details…'
+                    : `${job?.company || 'Company'} · ${job?.location || 'Remote'
+                    }`
+            }
+            action={
                 <button
-                    onClick={() => {
-                        window.location.href = '/jobs';
-                    }}
-                    className="mb-8 text-sm text-slate-400 transition hover:text-white"
+                    className="secondary-light-button"
+                    type="button"
+                    onClick={goToJobs}
                 >
-                    ← Back to jobs
+                    ← All jobs
                 </button>
+            }
+        >
+            {loading ? (
+                <div className="light-loading-state">
+                    <span
+                        className="light-loading-spinner"
+                        aria-hidden="true"
+                    />
 
-                {/* Job header */}
-                <section className="rounded-3xl border border-slate-800 bg-slate-900/60 p-8">
+                    <h2>Loading role details</h2>
 
-                    <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
+                    <p>
+                        Preparing the information needed to
+                        check your match.
+                    </p>
+                </div>
+            ) : error && !job ? (
+                <div className="light-error-state">
+                    <h2>We could not open this job</h2>
 
-                        <div className="flex gap-5">
+                    <p>{error}</p>
 
-                            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-blue-500/10 text-2xl font-bold text-blue-400">
-                                {job.company
-                                    ?.charAt(0)
-                                    ?.toUpperCase() || 'J'}
-                            </div>
+                    <button
+                        className="secondary-light-button"
+                        type="button"
+                        onClick={goToJobs}
+                    >
+                        Back to jobs
+                    </button>
+                </div>
+            ) : (
+                <>
+                    {error && job && (
+                        <p className="ui-message ui-message-error">
+                            {error}
+                        </p>
+                    )}
 
-                            <div>
+                    {success && (
+                        <p className="ui-message ui-message-success">
+                            {success}
+                        </p>
+                    )}
 
-                                <p className="text-sm font-medium text-blue-400">
-                                    {job.company}
-                                </p>
+                    <section className="light-page-grid two-columns job-match-layout">
+                        {/* Job information */}
+                        <article className="light-panel role-overview-panel">
+                            <div className="role-title-row">
+                                <span className="company-initial">
+                                    {job?.company
+                                        ?.charAt(0)
+                                        ?.toUpperCase() || 'J'}
+                                </span>
 
-                                <h1 className="mt-2 text-3xl font-bold tracking-tight">
-                                    {job.title}
-                                </h1>
-
-                                <div className="mt-4 flex flex-wrap gap-4 text-sm text-slate-400">
-
-                                    <span>
-                                        📍 {job.location || 'Remote'}
+                                <div className="role-title-content">
+                                    <span className="eyebrow-text">
+                                        OPEN OPPORTUNITY
                                     </span>
 
-                                    <span>
-                                        💼 {job.employmentType || 'Any type'}
-                                    </span>
+                                    <h2>
+                                        {job?.title || 'Job opportunity'}
+                                    </h2>
 
-                                    <span>
-                                        ◈ {job.experienceLevel || 'Any level'}
-                                    </span>
-
+                                    <p>
+                                        {job?.company || 'Company'}
+                                    </p>
                                 </div>
 
+                                <span className="open-job-badge">
+                                    Open role
+                                </span>
                             </div>
 
-                        </div>
+                            <section className="detail-section job-detail-meta">
+                                <span>
+                                    <b aria-hidden="true">LOC</b>
+                                    {job?.location || 'Remote'}
+                                </span>
 
-                        <span className="w-fit rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-sm font-medium text-emerald-400">
-                            {job.status || 'open'}
-                        </span>
+                                <span>
+                                    <b aria-hidden="true">TYPE</b>
+                                    {job?.employmentType || 'Full-time'}
+                                </span>
 
-                    </div>
+                                <span>
+                                    <b aria-hidden="true">EXP</b>
+                                    {job?.experienceLevel || 'Any level'}
+                                </span>
+                            </section>
 
-                </section>
+                            {job?.description && (
+                                <section className="detail-section">
+                                    <h3>About the role</h3>
 
-                <div className="mt-6 grid gap-6 lg:grid-cols-[1.5fr_0.8fr]">
+                                    <p className="job-description">
+                                        {job.description}
+                                    </p>
+                                </section>
+                            )}
 
-                    {/* Left */}
-                    <section className="space-y-6">
+                            <section className="detail-section">
+                                <div className="detail-section-heading">
+                                    <h3>Required skills</h3>
 
-                        <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-7">
+                                    <span>
+                                        {requiredSkills.length} skills
+                                    </span>
+                                </div>
 
-                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-400">
-                                Opportunity
-                            </p>
-
-                            <h2 className="mt-2 text-xl font-semibold">
-                                About the role
-                            </h2>
-
-                            <p className="mt-4 whitespace-pre-line text-sm leading-7 text-slate-400">
-                                {job.description}
-                            </p>
-
-                        </div>
-
-                        <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-7">
-
-                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-400">
-                                Requirements
-                            </p>
-
-                            <h2 className="mt-2 text-xl font-semibold">
-                                Required skills
-                            </h2>
-
-                            <div className="mt-5 flex flex-wrap gap-2">
-
-                                {job.requiredSkills?.map(
-                                    (skill, index) => {
-                                        const label = getSkillLabel(skill);
-
-                                        return (
+                                <div className="skill-chip-wrap">
+                                    {requiredSkills.length ? (
+                                        requiredSkills.map((skill) => (
                                             <span
-                                                key={getSkillKey(skill, index)}
-                                                className="rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-sm text-blue-300"
+                                                className="skill-chip"
+                                                key={skill}
                                             >
-                                                {label}
+                                                ✓ {formatSkill(skill)}
                                             </span>
-                                        );
-                                    }
-                                )}
-
-                            </div>
-
-                            <h3 className="mt-8 text-sm font-semibold text-slate-300">
-                                Preferred skills
-                            </h3>
-
-                            <div className="mt-4 flex flex-wrap gap-2">
-
-                                {job.preferredSkills?.map(
-                                    (skill, index) => {
-                                        const label = getSkillLabel(skill);
-
-                                        return (
-                                            <span
-                                                key={getSkillKey(skill, index)}
-                                                className="rounded-xl border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm text-slate-400"
-                                            >
-                                                {label}
-                                            </span>
-                                        );
-                                    }
-                                )}
-
-                            </div>
-
-                        </div>
-
-                    </section>
-
-                    {/* Right application panel */}
-                    <aside className="h-fit rounded-3xl border border-slate-800 bg-slate-900/70 p-7 lg:sticky lg:top-6">
-
-                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-400">
-                            AI compatibility
-                        </p>
-
-                        <h2 className="mt-2 text-xl font-semibold">
-                            {existingApplication
-                                ? 'Your application'
-                                : 'Check your match'}
-                        </h2>
-
-                        <p className="mt-2 text-sm leading-6 text-slate-500">
-                            {existingApplication
-                                ? 'Your resume has already been evaluated for this opportunity.'
-                                : 'Select one of your resumes to calculate how well your skills match this opportunity.'}
-                        </p>
-
-                        {/* Resume */}
-                        {resumes.length === 0 ? (
-
-                            <div className="mt-6 rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-4">
-                                <p className="text-sm text-yellow-400">
-                                    Upload a resume before applying.
-                                </p>
-                            </div>
-
-                        ) : (
-
-                            <>
-                                <label className="mt-6 block text-sm font-medium text-slate-300">
-                                    Select resume
-                                </label>
-
-                                <select
-                                    value={selectedResume}
-                                    onChange={(event) => {
-                                        setSelectedResume(
-                                            event.target.value
-                                        );
-
-                                        setMatch(null);
-                                        setSuccess('');
-                                    }}
-                                    className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-200 outline-none focus:border-blue-500"
-                                >
-                                    {resumes.map(
-                                        (resume) => (
-                                            <option
-                                                key={
-                                                    resume.id ||
-                                                    resume._id
-                                                }
-                                                value={
-                                                    resume.id ||
-                                                    resume._id
-                                                }
-                                            >
-                                                {resume.fileName}
-                                            </option>
-                                        )
+                                        ))
+                                    ) : (
+                                        <span className="detail-muted">
+                                            No required skills listed.
+                                        </span>
                                     )}
-                                </select>
+                                </div>
+                            </section>
 
-                                {!existingApplication && (
-                                    <button
-                                        onClick={
-                                            handleCalculateMatch
-                                        }
-                                        disabled={matching}
-                                        className="mt-4 w-full rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm font-semibold text-blue-300 transition hover:bg-blue-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                            {preferredSkills.length > 0 && (
+                                <section className="detail-section">
+                                    <div className="detail-section-heading">
+                                        <h3>Preferred skills</h3>
+
+                                        <span>
+                                            {preferredSkills.length} skills
+                                        </span>
+                                    </div>
+
+                                    <div className="skill-chip-wrap">
+                                        {preferredSkills.map((skill) => (
+                                            <span
+                                                className="skill-chip optional"
+                                                key={skill}
+                                            >
+                                                {formatSkill(skill)}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </section>
+                            )}
+                        </article>
+
+                        {/* Match analysis */}
+                        <aside className="light-panel match-action-panel">
+                            {!resumeOptions.length ? (
+                                <EmptyState
+                                    title="Add a resume to continue"
+                                    detail="Upload a resume first, then we can show the exact skills that match this role."
+                                    action={
+                                        <button
+                                            className="primary-light-button"
+                                            type="button"
+                                            onClick={goToResumes}
+                                        >
+                                            Upload a resume
+                                        </button>
+                                    }
+                                />
+                            ) : (
+                                <>
+                                    <div className="light-panel-header">
+                                        <div>
+                                            <span className="eyebrow-text">
+                                                MATCH ANALYSIS
+                                            </span>
+
+                                            <h2>Your match</h2>
+
+                                            <p>
+                                                Compare your resume against
+                                                this role.
+                                            </p>
+                                        </div>
+
+                                        {match && (
+                                            <MatchRing
+                                                score={match.score ?? 0}
+                                                label="Match"
+                                            />
+                                        )}
+                                    </div>
+
+                                    <label
+                                        className="field-label"
+                                        htmlFor="resume-select"
                                     >
-                                        {matching
-                                            ? 'Analyzing...'
-                                            : 'Calculate AI Match'}
-                                    </button>
-                                )}
-                            </>
+                                        Resume to compare
+                                    </label>
 
-                        )}
+                                    <select
+                                        id="resume-select"
+                                        className="light-field"
+                                        value={selectedResume}
+                                        onChange={(event) => {
+                                            setSelectedResume(
+                                                event.target.value
+                                            );
+                                            setMatch(null);
+                                            setError('');
+                                            setSuccess('');
+                                        }}
+                                        disabled={Boolean(
+                                            existingApplication
+                                        )}
+                                    >
+                                        {resumeOptions.map((resume) => (
+                                            <option
+                                                value={resume.id}
+                                                key={resume.id}
+                                            >
+                                                {resume.label}
+                                            </option>
+                                        ))}
+                                    </select>
 
-                        {error && (
-                            <div className="mt-5 rounded-xl border border-red-900/50 bg-red-950/20 p-4">
-                                <p className="text-sm text-red-400">
-                                    {error}
-                                </p>
-                            </div>
-                        )}
-
-                        {success && (
-                            <div className="mt-5 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">
-                                <p className="text-sm font-medium text-emerald-400">
-                                    ✓ {success}
-                                </p>
-                            </div>
-                        )}
-
-                        {/* Existing application status */}
-                        {existingApplication && (
-                            <div className="mt-5 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5">
-
-                                <div className="flex items-center justify-between gap-4">
-
-                                    <div>
-                                        <p className="text-xs uppercase tracking-wider text-slate-500">
-                                            Application status
-                                        </p>
-
-                                        <p className="mt-1 text-sm font-semibold text-emerald-400">
-                                            {statusText}
-                                        </p>
-                                    </div>
-
-                                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-400">
-                                        ✓
-                                    </div>
-
-                                </div>
-
-                                {existingApplication.appliedAt && (
-                                    <p className="mt-3 text-xs text-slate-500">
-                                        Applied{' '}
-                                        {new Date(
-                                            existingApplication.appliedAt
-                                        ).toLocaleDateString()}
-                                    </p>
-                                )}
-
-                            </div>
-                        )}
-
-                        {/* Match */}
-                        {match && (
-                            <div className="mt-6">
-
-                                <div className="rounded-2xl border border-slate-700 bg-slate-950/70 p-6 text-center">
-
-                                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                                        Match score
-                                    </p>
-
-                                    <p className="mt-2 text-6xl font-bold tracking-tight text-blue-400">
-                                        {match.score}%
-                                    </p>
-
-                                    <p className="mt-2 text-sm text-slate-400">
-                                        Resume compatibility
-                                    </p>
-
-                                </div>
-
-                                {match.required && (
-                                    <div className="mt-4 grid grid-cols-2 gap-3">
-
-                                        <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
-                                            <p className="text-xs text-slate-500">
-                                                Required
-                                            </p>
-
-                                            <p className="mt-1 text-lg font-semibold">
-                                                {match.required.matched}/
-                                                {match.required.total}
-                                            </p>
-
-                                            <p className="text-xs text-slate-500">
-                                                {match.required.coverage}%
-                                                coverage
-                                            </p>
-                                        </div>
-
-                                        <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
-                                            <p className="text-xs text-slate-500">
-                                                Preferred
-                                            </p>
-
-                                            <p className="mt-1 text-lg font-semibold">
-                                                {match.preferred.matched}/
-                                                {match.preferred.total}
-                                            </p>
-
-                                            <p className="text-xs text-slate-500">
-                                                {match.preferred.coverage}%
-                                                coverage
-                                            </p>
-                                        </div>
-
-                                    </div>
-                                )}
-
-                                {match.required?.missingSkills?.length > 0 && (
-                                    <div className="mt-5">
-
-                                        <p className="text-xs font-medium text-slate-500">
-                                            Missing required skills
-                                        </p>
-
-                                        <div className="mt-2 flex flex-wrap gap-2">
-
-                                            {match.required.missingSkills.map(
-                                                (skill, index) => {
-                                                    const label = getSkillLabel(skill);
-
-                                                    return (
-                                                        <span
-                                                            key={getSkillKey(skill, index)}
-                                                            className="rounded-lg bg-red-500/10 px-2.5 py-1 text-xs text-red-400"
-                                                        >
-                                                            {label}
-                                                        </span>
-                                                    );
+                                    {existingApplication ? (
+                                        <div className="existing-application">
+                                            <StatusPill
+                                                status={
+                                                    existingApplication.status ||
+                                                    'applied'
                                                 }
-                                            )}
+                                            />
 
+                                            <div>
+                                                <strong>
+                                                    Application submitted
+                                                </strong>
+
+                                                <p>
+                                                    You have already applied
+                                                    for this role.
+                                                </p>
+                                            </div>
                                         </div>
+                                    ) : (
+                                        <button
+                                            className="secondary-light-button full-width-action"
+                                            type="button"
+                                            onClick={handleCalculateMatch}
+                                            disabled={matching}
+                                        >
+                                            {matching
+                                                ? 'Analyzing your resume…'
+                                                : '✦ Calculate match'}
+                                        </button>
+                                    )}
 
-                                    </div>
-                                )}
+                                    {match && (
+                                        <section className="detail-section match-result-section">
+                                            <div className="match-result-summary">
+                                                <div>
+                                                    <span className="match-result-label">
+                                                        Overall compatibility
+                                                    </span>
 
-                                {/* Apply only if not already applied */}
-                                {!existingApplication && !success && (
-                                    <button
-                                        onClick={handleApply}
-                                        disabled={applying}
-                                        className="mt-6 w-full rounded-xl bg-blue-600 px-4 py-3.5 text-sm font-semibold transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                        {applying
-                                            ? 'Submitting...'
-                                            : 'Apply now'}
-                                    </button>
-                                )}
+                                                    <strong>
+                                                        {Math.round(
+                                                            Number(match.score ?? 0)
+                                                        )}
+                                                        %
+                                                    </strong>
+                                                </div>
+                                            </div>
 
-                            </div>
-                        )}
+                                            {/* Score breakdown */}
+                                            <div className="match-explanation-grid">
+                                                <MatchBreakdown
+                                                    title="Required"
+                                                    data={match.required}
+                                                />
 
-                    </aside>
+                                                <MatchBreakdown
+                                                    title="Preferred"
+                                                    data={match.preferred}
+                                                />
+                                            </div>
 
+                                            {/* Matched / missing skills */}
+                                            <div className="match-explanation-grid">
+                                                <div>
+                                                    <h4>Matched skills</h4>
+
+                                                    <div className="skill-chip-wrap">
+                                                        {matchedSkills.length ? (
+                                                            matchedSkills.map((skill) => (
+                                                                <span
+                                                                    className="skill-chip"
+                                                                    key={skill}
+                                                                >
+                                                                    ✓ {formatSkill(skill)}
+                                                                </span>
+                                                            ))
+                                                        ) : (
+                                                            <span className="detail-muted">
+                                                                No matching skills
+                                                                detected yet.
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                <div>
+                                                    <h4>
+                                                        Missing required skills
+                                                    </h4>
+
+                                                    <div className="skill-chip-wrap">
+                                                        {missingRequiredSkills.length ? (
+                                                            missingRequiredSkills.map(
+                                                                (skill) => (
+                                                                    <span
+                                                                        className="skill-chip missing"
+                                                                        key={skill}
+                                                                    >
+                                                                        {formatSkill(skill)}
+                                                                    </span>
+                                                                )
+                                                            )
+                                                        ) : (
+                                                            <span className="detail-muted">
+                                                                No required skills
+                                                                missing.
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Missing preferred skills */}
+                                            {missingPreferredSkills.length >
+                                                0 && (
+                                                    <div className="detail-section">
+                                                        <h4>
+                                                            Missing preferred skills
+                                                        </h4>
+
+                                                        <div className="skill-chip-wrap">
+                                                            {missingPreferredSkills.map(
+                                                                (skill) => (
+                                                                    <span
+                                                                        className="skill-chip optional missing"
+                                                                        key={skill}
+                                                                    >
+                                                                        {formatSkill(skill)}
+                                                                    </span>
+                                                                )
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                            {/* Apply */}
+                                            {!existingApplication && (
+                                                <button
+                                                    className="primary-light-button full-width-action"
+                                                    type="button"
+                                                    onClick={handleApply}
+                                                    disabled={applying}
+                                                >
+                                                    {applying
+                                                        ? 'Submitting application…'
+                                                        : 'Apply with this resume →'}
+                                                </button>
+                                            )}
+                                        </section>
+                                    )}
+                                </>
+                            )}
+                        </aside>
+                    </section>
+                </>
+            )}
+        </WorkspaceShell>
+    );
+}
+
+function MatchBreakdown({ title, data }) {
+    if (!data) {
+        return (
+            <div className="match-breakdown-card">
+                <div className="match-breakdown-heading">
+                    <h4>{title}</h4>
+                    <span>No data</span>
+                </div>
+            </div>
+        );
+    }
+
+    const coverage = Math.min(
+        100,
+        Number(data.coverage ?? 0)
+    );
+
+    return (
+        <div className="match-breakdown-card">
+            <div className="match-breakdown-heading">
+                <h4>{title}</h4>
+
+                <span>
+                    {data.matched ?? 0} / {data.total ?? 0}
+                </span>
+            </div>
+
+            <div className="match-coverage">
+                <div className="match-coverage-track">
+                    <span
+                        style={{
+                            width: `${coverage}%`,
+                        }}
+                    />
                 </div>
 
-            </main>
-
+                <strong>{coverage}%</strong>
+            </div>
         </div>
     );
 }

@@ -1,11 +1,81 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '../context/AuthContext';
+
 import { getMyJobs } from '../api/jobs';
+
 import {
     getJobApplicants,
     updateApplicationStatus,
 } from '../api/applications';
+
+import {
+    EmptyState,
+    MatchRing,
+    MetricCard,
+    StatusPill,
+    WorkspaceShell,
+} from '../components/WorkspaceShell';
+
+function getInitials(name = '') {
+    return (
+        name
+            .split(' ')
+            .filter(Boolean)
+            .slice(0, 2)
+            .map((part) => part[0])
+            .join('')
+            .toUpperCase() || 'C'
+    );
+}
+
+function getSkillName(skill) {
+    if (typeof skill === 'string') {
+        return skill;
+    }
+
+    return skill?.name || skill?.skill || '';
+}
+
+function formatSkill(skill) {
+    const name = getSkillName(skill);
+
+    if (!name) return '';
+
+    const normalized = name
+        .toLowerCase()
+        .trim()
+        .replace(/[.\s_-]+/g, '');
+
+    const labels = {
+        nodejs: 'Node.js',
+        nextjs: 'Next.js',
+        mongodb: 'MongoDB',
+        mysql: 'MySQL',
+        javascript: 'JavaScript',
+        typescript: 'TypeScript',
+        tailwindcss: 'Tailwind CSS',
+        restapi: 'REST API',
+    };
+
+    return labels[normalized] || name;
+}
+
+function formatDate(date) {
+    if (!date) return '—';
+
+    const parsed = new Date(date);
+
+    if (Number.isNaN(parsed.getTime())) {
+        return '—';
+    }
+
+    return parsed.toLocaleDateString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+    });
+}
 
 function Candidates() {
     const { token } = useAuth();
@@ -15,41 +85,80 @@ function Candidates() {
     const [applications, setApplications] = useState([]);
 
     const [loadingJobs, setLoadingJobs] = useState(true);
-    const [loadingApplicants, setLoadingApplicants] = useState(false);
-    const [updatingId, setUpdatingId] = useState(null);
+    const [loadingApplicants, setLoadingApplicants] =
+        useState(false);
 
+    const [updatingId, setUpdatingId] = useState(null);
     const [error, setError] = useState('');
 
     useEffect(() => {
+        let cancelled = false;
+
         const loadJobs = async () => {
+            if (!token) {
+                setLoadingJobs(false);
+                return;
+            }
+
             try {
                 setLoadingJobs(true);
                 setError('');
 
                 const data = await getMyJobs(token);
 
-                setJobs(data.jobs || []);
+                if (cancelled) return;
 
-                if (data.jobs?.length > 0) {
-                    setSelectedJob(data.jobs[0]);
+                const recruiterJobs = data.jobs || [];
+
+                setJobs(recruiterJobs);
+
+                if (recruiterJobs.length > 0) {
+                    setSelectedJob((current) => {
+                        if (!current) {
+                            return recruiterJobs[0];
+                        }
+
+                        return (
+                            recruiterJobs.find(
+                                (job) =>
+                                    job._id === current._id
+                            ) || recruiterJobs[0]
+                        );
+                    });
+                } else {
+                    setSelectedJob(null);
                 }
             } catch (err) {
-                setError(err.message);
+                if (!cancelled) {
+                    setError(
+                        err.message ||
+                        'Unable to load your jobs.'
+                    );
+                }
             } finally {
-                setLoadingJobs(false);
+                if (!cancelled) {
+                    setLoadingJobs(false);
+                }
             }
         };
 
-        loadJobs();
+        void loadJobs();
+
+        return () => {
+            cancelled = true;
+        };
     }, [token]);
 
     useEffect(() => {
-        if (!selectedJob) {
-            setApplications([]);
-            return;
-        }
+        let cancelled = false;
 
         const loadApplicants = async () => {
+            if (!token || !selectedJob?._id) {
+                setApplications([]);
+                setLoadingApplicants(false);
+                return;
+            }
+
             try {
                 setLoadingApplicants(true);
                 setError('');
@@ -59,16 +168,77 @@ function Candidates() {
                     selectedJob._id
                 );
 
-                setApplications(data.applications || []);
+                if (!cancelled) {
+                    setApplications(
+                        data.applications || []
+                    );
+                }
             } catch (err) {
-                setError(err.message);
+                if (!cancelled) {
+                    setError(
+                        err.message ||
+                        'Unable to load applicants.'
+                    );
+                }
             } finally {
-                setLoadingApplicants(false);
+                if (!cancelled) {
+                    setLoadingApplicants(false);
+                }
             }
         };
 
-        loadApplicants();
-    }, [token, selectedJob]);
+        void loadApplicants();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [token, selectedJob?._id]);
+
+    const averageMatch = useMemo(() => {
+        if (!applications.length) {
+            return 0;
+        }
+
+        const scores = applications
+            .map((application) =>
+                Number(application.matchScore)
+            )
+            .filter((score) => Number.isFinite(score));
+
+        if (!scores.length) {
+            return 0;
+        }
+
+        return Math.round(
+            scores.reduce(
+                (sum, score) => sum + score,
+                0
+            ) / scores.length
+        );
+    }, [applications]);
+
+    const shortlisted = applications.filter(
+        (application) =>
+            application.status === 'shortlisted'
+    ).length;
+
+    const interviews = applications.filter(
+        (application) =>
+            application.status === 'interview'
+    ).length;
+
+    const hired = applications.filter(
+        (application) =>
+            application.status === 'hired'
+    ).length;
+
+    const rejected = applications.filter(
+        (application) =>
+            application.status === 'rejected'
+    ).length;
+
+    const activeCandidates =
+        applications.length - rejected - hired;
 
     const handleStatusChange = async (
         applicationId,
@@ -95,408 +265,699 @@ function Candidates() {
                 )
             );
         } catch (err) {
-            setError(err.message);
+            setError(
+                err.message ||
+                'Unable to update candidate status.'
+            );
         } finally {
             setUpdatingId(null);
         }
     };
 
-    const getScoreClass = (score) => {
-        if (score >= 80) {
-            return 'text-emerald-400';
-        }
-
-        if (score >= 60) {
-            return 'text-blue-400';
-        }
-
-        if (score >= 40) {
-            return 'text-amber-400';
-        }
-
-        return 'text-red-400';
+    const navigate = (path) => {
+        window.location.href = path;
     };
 
-    const getStatusClass = (status) => {
-        const classes = {
-            applied:
-                'border-blue-500/30 bg-blue-500/10 text-blue-400',
-
-            shortlisted:
-                'border-emerald-500/30 bg-emerald-500/10 text-emerald-400',
-
-            interview:
-                'border-purple-500/30 bg-purple-500/10 text-purple-400',
-
-            hired:
-                'border-cyan-500/30 bg-cyan-500/10 text-cyan-400',
-
-            rejected:
-                'border-red-500/30 bg-red-500/10 text-red-400',
-        };
-
+    if (loadingJobs) {
         return (
-            classes[status] ||
-            'border-slate-700 bg-slate-800 text-slate-300'
-        );
-    };
+            <WorkspaceShell
+                role="recruiter"
+                title="Candidates"
+                subtitle="Review applicants ranked by AI compatibility and manage your hiring pipeline."
+                action={
+                    <button
+                        className="secondary-light-button"
+                        type="button"
+                        onClick={() =>
+                            navigate('/recruiter/jobs')
+                        }
+                    >
+                        ← Job listings
+                    </button>
+                }
+            >
+                <div className="light-loading-state">
+                    <span
+                        className="light-loading-spinner"
+                        aria-hidden="true"
+                    />
 
-    const averageMatch =
-        applications.length > 0
-            ? Math.round(
-                applications.reduce(
-                    (sum, application) =>
-                        sum + (application.matchScore || 0),
-                    0
-                ) / applications.length
-            )
-            : 0;
+                    <h2>
+                        Loading candidate intelligence
+                    </h2>
+
+                    <p>
+                        Preparing your hiring workspace.
+                    </p>
+                </div>
+            </WorkspaceShell>
+        );
+    }
 
     return (
-        <div className="min-h-screen bg-[#050914] text-white">
-            <main className="mx-auto max-w-7xl px-6 py-10">
+        <WorkspaceShell
+            role="recruiter"
+            title="Candidates"
+            subtitle="Review applicants ranked by AI compatibility and manage your hiring pipeline."
+            action={
+                <button
+                    className="secondary-light-button"
+                    type="button"
+                    onClick={() =>
+                        navigate('/recruiter/jobs')
+                    }
+                >
+                    ← Job listings
+                </button>
+            }
+        >
+            {error && (
+                <div className="ui-message ui-message-error">
+                    {error}
+                </div>
+            )}
 
-                {/* Header */}
-                <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            {/* JOB SELECTOR */}
 
-                    <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-blue-400">
-                            Candidate intelligence
+            <section className="light-panel candidate-job-selector">
+                <div>
+                    <span className="eyebrow-text">
+                        REVIEWING APPLICATIONS FOR
+                    </span>
+
+                    <h2>
+                        {selectedJob?.title ||
+                            'Select a job'}
+                    </h2>
+
+                    {selectedJob?.company && (
+                        <p>
+                            {selectedJob.company}
                         </p>
-
-                        <h1 className="mt-3 text-4xl font-bold tracking-tight">
-                            Candidates
-                        </h1>
-
-                        <p className="mt-3 max-w-2xl text-slate-400">
-                            Review applicants ranked by AI compatibility
-                            and manage your hiring pipeline.
-                        </p>
-                    </div>
-
-                    <div className="flex gap-3">
-                        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-6 py-4">
-                            <p className="text-xs uppercase tracking-wider text-slate-500">
-                                Applicants
-                            </p>
-
-                            <p className="mt-1 text-2xl font-bold">
-                                {applications.length}
-                            </p>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-6 py-4">
-                            <p className="text-xs uppercase tracking-wider text-slate-500">
-                                Avg. match
-                            </p>
-
-                            <p className="mt-1 text-2xl font-bold text-blue-400">
-                                {averageMatch}%
-                            </p>
-                        </div>
-                    </div>
+                    )}
                 </div>
 
-                {/* Job selector */}
-                <section className="mt-10 rounded-3xl border border-slate-800 bg-slate-900/50 p-6">
+                <select
+                    value={selectedJob?._id || ''}
+                    onChange={(event) => {
+                        const job = jobs.find(
+                            (item) =>
+                                item._id ===
+                                event.target.value
+                        );
 
-                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                        setSelectedJob(
+                            job || null
+                        );
+                    }}
+                    disabled={
+                        loadingJobs ||
+                        jobs.length === 0
+                    }
+                    className="light-field candidate-job-select"
+                >
+                    {jobs.length === 0 ? (
+                        <option value="">
+                            No jobs available
+                        </option>
+                    ) : (
+                        jobs.map((job) => (
+                            <option
+                                key={job._id}
+                                value={job._id}
+                            >
+                                {job.title}
+                            </option>
+                        ))
+                    )}
+                </select>
+            </section>
 
-                        <div>
-                            <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                                Reviewing applications for
-                            </p>
+            {/* METRICS */}
 
-                            <h2 className="mt-2 text-xl font-semibold">
-                                {selectedJob?.title || 'Select a job'}
-                            </h2>
+            <section className="metrics-grid candidate-metrics">
+                <MetricCard
+                    icon="▣"
+                    label="Applicants"
+                    value={applications.length}
+                    detail="Total candidates"
+                    tone="blue"
+                />
 
-                            {selectedJob && (
-                                <p className="mt-1 text-sm text-slate-500">
-                                    {selectedJob.company}
-                                </p>
-                            )}
-                        </div>
+                <MetricCard
+                    icon="✓"
+                    label="Shortlisted"
+                    value={shortlisted}
+                    detail="Recruiter selections"
+                    tone="green"
+                />
 
-                        <select
-                            value={selectedJob?._id || ''}
-                            onChange={(event) => {
-                                const job = jobs.find(
-                                    (item) =>
-                                        item._id === event.target.value
-                                );
+                <MetricCard
+                    icon="◇"
+                    label="Interviews"
+                    value={interviews}
+                    detail="Interview stage"
+                    tone="purple"
+                />
 
-                                setSelectedJob(job || null);
-                            }}
-                            disabled={loadingJobs || jobs.length === 0}
-                            className="min-w-[280px] rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-200 outline-none transition focus:border-blue-500"
-                        >
-                            {jobs.length === 0 && (
-                                <option value="">
-                                    No jobs available
-                                </option>
-                            )}
+                <MetricCard
+                    icon="◆"
+                    label="Hired"
+                    value={hired}
+                    detail="Successful applications"
+                    tone="orange"
+                />
+            </section>
 
-                            {jobs.map((job) => (
-                                <option
-                                    key={job._id}
-                                    value={job._id}
-                                >
-                                    {job.title}
-                                </option>
-                            ))}
-                        </select>
+            {/* PIPELINE */}
+
+            <section className="light-panel candidates-pipeline-panel">
+                <div className="candidates-pipeline-header">
+                    <div>
+                        <span className="eyebrow-text">
+                            APPLICATION PIPELINE
+                        </span>
+
+                        <h2>
+                            Candidate progress
+                        </h2>
+
+                        <p>
+                            A quick overview of where
+                            applicants currently stand.
+                        </p>
                     </div>
-                </section>
 
-                {/* Error */}
-                {error && (
-                    <div className="mt-6 rounded-2xl border border-red-500/20 bg-red-500/10 px-5 py-4 text-sm text-red-400">
-                        {error}
+                    <MatchRing
+                        score={averageMatch}
+                        label="AVG MATCH"
+                    />
+                </div>
+
+                <div className="candidates-pipeline">
+                    <CandidatePipelineStage
+                        label="Applied"
+                        value={applications.length}
+                        active={
+                            applications.length > 0
+                        }
+                    />
+
+                    <div
+                        className="candidate-pipeline-line"
+                        aria-hidden="true"
+                    />
+
+                    <CandidatePipelineStage
+                        label="Shortlisted"
+                        value={shortlisted}
+                        active={shortlisted > 0}
+                    />
+
+                    <div
+                        className="candidate-pipeline-line"
+                        aria-hidden="true"
+                    />
+
+                    <CandidatePipelineStage
+                        label="Interview"
+                        value={interviews}
+                        active={interviews > 0}
+                    />
+
+                    <div
+                        className="candidate-pipeline-line"
+                        aria-hidden="true"
+                    />
+
+                    <CandidatePipelineStage
+                        label="Hired"
+                        value={hired}
+                        active={hired > 0}
+                    />
+                </div>
+
+                <div className="candidate-secondary-stats">
+                    <div>
+                        <span>
+                            Active candidates
+                        </span>
+
+                        <strong>
+                            {Math.max(
+                                0,
+                                activeCandidates
+                            )}
+                        </strong>
+                    </div>
+
+                    <div>
+                        <span>Rejected</span>
+
+                        <strong>
+                            {rejected}
+                        </strong>
+                    </div>
+
+                    <div>
+                        <span>Average match</span>
+
+                        <strong>
+                            {averageMatch}%
+                        </strong>
+                    </div>
+                </div>
+            </section>
+
+            {/* APPLICANTS */}
+
+            <section className="light-panel candidates-list-panel">
+                <div className="candidates-list-header">
+                    <div>
+                        <span className="eyebrow-text">
+                            LATEST INTELLIGENCE
+                        </span>
+
+                        <h2>
+                            Applicant pipeline
+                        </h2>
+
+                        <p>
+                            Candidates ranked by AI
+                            compatibility score.
+                        </p>
+                    </div>
+
+                    {applications.length > 0 && (
+                        <span className="ai-analyzed-badge">
+                            AI analyzed
+                        </span>
+                    )}
+                </div>
+
+                {loadingApplicants ? (
+                    <div className="light-loading-state candidates-inline-loading">
+                        <span
+                            className="light-loading-spinner"
+                            aria-hidden="true"
+                        />
+
+                        <h2>
+                            Loading candidates
+                        </h2>
+
+                        <p>
+                            Calculating candidate
+                            intelligence.
+                        </p>
+                    </div>
+                ) : applications.length === 0 ? (
+                    <EmptyState
+                        title="No applicants yet"
+                        detail="Applications for this opportunity will appear here."
+                    />
+                ) : (
+                    <div className="candidates-list">
+                        {applications.map(
+                            (application, index) => (
+                                <CandidateCard
+                                    key={
+                                        application._id
+                                    }
+                                    application={
+                                        application
+                                    }
+                                    index={index}
+                                    updating={
+                                        updatingId ===
+                                        application._id
+                                    }
+                                    onStatusChange={
+                                        handleStatusChange
+                                    }
+                                />
+                            )
+                        )}
                     </div>
                 )}
+            </section>
+        </WorkspaceShell>
+    );
+}
 
-                {/* Applicants */}
-                <section className="mt-8">
+function CandidateCard({
+    application,
+    index,
+    updating,
+    onStatusChange,
+}) {
+    const candidate =
+        application.candidate || {};
 
-                    <div className="mb-5 flex items-center justify-between">
-                        <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
-                                Latest intelligence
-                            </p>
+    const resume =
+        application.resume || {};
 
-                            <h2 className="mt-2 text-2xl font-semibold">
-                                Applicant pipeline
-                            </h2>
-                        </div>
+    const score = Number.isFinite(
+        Number(application.matchScore)
+    )
+        ? Math.max(
+            0,
+            Math.min(
+                100,
+                Number(application.matchScore)
+            )
+        )
+        : 0;
 
-                        {applications.length > 0 && (
-                            <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-400">
-                                AI analyzed
-                            </span>
+    const skills = resume.skills || [];
+
+    const matchAnalysis =
+        application.matchAnalysis || null;
+
+    const required =
+        matchAnalysis?.required || null;
+
+    const preferred =
+        matchAnalysis?.preferred || null;
+
+    return (
+        <article className="candidate-card">
+            <div className="candidate-card-top">
+                <div className="candidate-identity">
+                    <div className="candidate-avatar">
+                        {getInitials(
+                            candidate.name
                         )}
                     </div>
 
-                    {loadingApplicants ? (
-                        <div className="rounded-3xl border border-slate-800 bg-slate-900/50 p-12 text-center">
-                            <p className="text-slate-400">
-                                Loading candidate intelligence...
-                            </p>
-                        </div>
-                    ) : applications.length === 0 ? (
-                        <div className="rounded-3xl border border-dashed border-slate-800 bg-slate-900/30 p-12 text-center">
-                            <p className="text-lg font-medium">
-                                No applicants yet
-                            </p>
+                    <div className="candidate-info">
+                        <div className="candidate-name-row">
+                            <h3>
+                                {candidate.name ||
+                                    'Unknown candidate'}
+                            </h3>
 
-                            <p className="mt-2 text-sm text-slate-500">
-                                Applications for this opportunity will
-                                appear here.
-                            </p>
-                        </div>
-                    ) : (
-                        <div className="space-y-4">
-
-                            {applications.map(
-                                (application, index) => {
-                                    const candidate =
-                                        application.candidate;
-
-                                    const resume =
-                                        application.resume;
-
-                                    return (
-                                        <article
-                                            key={application._id}
-                                            className="rounded-3xl border border-slate-800 bg-slate-900/50 p-6 transition hover:border-slate-700"
-                                        >
-
-                                            <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-
-                                                {/* Candidate */}
-                                                <div className="flex gap-4">
-
-                                                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-500/10 text-sm font-bold text-blue-400">
-                                                        {candidate?.name
-                                                            ?.split(' ')
-                                                            .map(
-                                                                (part) =>
-                                                                    part[0]
-                                                            )
-                                                            .join('')
-                                                            .slice(
-                                                                0,
-                                                                2
-                                                            )
-                                                            .toUpperCase() ||
-                                                            'C'}
-                                                    </div>
-
-                                                    <div>
-                                                        <div className="flex items-center gap-3">
-                                                            <h3 className="text-lg font-semibold">
-                                                                {candidate?.name ||
-                                                                    'Unknown candidate'}
-                                                            </h3>
-
-                                                            {index ===
-                                                                0 && (
-                                                                    <span className="rounded-full border border-blue-500/20 bg-blue-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-blue-400">
-                                                                        Top match
-                                                                    </span>
-                                                                )}
-                                                        </div>
-
-                                                        <p className="mt-1 text-sm text-slate-500">
-                                                            {candidate?.email}
-                                                        </p>
-
-                                                        {resume?.fileName && (
-                                                            <p className="mt-3 text-xs text-slate-600">
-                                                                Resume ·{' '}
-                                                                {resume.fileName}
-                                                            </p>
-                                                        )}
-                                                    </div>
-                                                </div>
-
-                                                {/* Score */}
-                                                <div className="flex items-center gap-5">
-
-                                                    <div className="text-right">
-                                                        <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">
-                                                            AI match
-                                                        </p>
-
-                                                        <p
-                                                            className={`mt-1 text-3xl font-bold ${getScoreClass(
-                                                                application.matchScore
-                                                            )}`}
-                                                        >
-                                                            {application.matchScore ??
-                                                                0}
-                                                            %
-                                                        </p>
-                                                    </div>
-
-                                                    <div
-                                                        className={`flex h-14 w-14 items-center justify-center rounded-full border-4 border-slate-800 ${getScoreClass(
-                                                            application.matchScore
-                                                        )}`}
-                                                    >
-                                                        <span className="text-xs font-semibold">
-                                                            {application.matchScore ??
-                                                                0}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Skills */}
-                                            {resume?.skills?.length >
-                                                0 && (
-                                                    <div className="mt-6 border-t border-slate-800 pt-5">
-
-                                                        <p className="mb-3 text-xs uppercase tracking-wider text-slate-500">
-                                                            Detected skills
-                                                        </p>
-
-                                                        <div className="flex flex-wrap gap-2">
-                                                            {resume.skills.map(
-                                                                (
-                                                                    skill
-                                                                ) => (
-                                                                    <span
-                                                                        key={
-                                                                            skill._id ||
-                                                                            skill.name
-                                                                        }
-                                                                        className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-1.5 text-xs text-slate-300"
-                                                                    >
-                                                                        {
-                                                                            skill.name
-                                                                        }
-                                                                    </span>
-                                                                )
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                            {/* Footer */}
-                                            <div className="mt-6 flex flex-col gap-4 border-t border-slate-800 pt-5 sm:flex-row sm:items-center sm:justify-between">
-
-                                                <div>
-                                                    <p className="text-xs text-slate-600">
-                                                        Applied{' '}
-                                                        {application.appliedAt
-                                                            ? new Date(
-                                                                application.appliedAt
-                                                            ).toLocaleDateString()
-                                                            : '—'}
-                                                    </p>
-                                                </div>
-
-                                                <div className="flex items-center gap-3">
-
-                                                    <span
-                                                        className={`rounded-full border px-3 py-1.5 text-xs font-medium capitalize ${getStatusClass(
-                                                            application.status
-                                                        )}`}
-                                                    >
-                                                        {application.status}
-                                                    </span>
-
-                                                    <select
-                                                        value={
-                                                            application.status
-                                                        }
-                                                        disabled={
-                                                            updatingId ===
-                                                            application._id
-                                                        }
-                                                        onChange={(
-                                                            event
-                                                        ) =>
-                                                            handleStatusChange(
-                                                                application._id,
-                                                                event
-                                                                    .target
-                                                                    .value
-                                                            )
-                                                        }
-                                                        className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-300 outline-none focus:border-blue-500"
-                                                    >
-                                                        <option value="applied">
-                                                            Applied
-                                                        </option>
-
-                                                        <option value="shortlisted">
-                                                            Shortlisted
-                                                        </option>
-
-                                                        <option value="interview">
-                                                            Interview
-                                                        </option>
-
-                                                        <option value="hired">
-                                                            Hired
-                                                        </option>
-
-                                                        <option value="rejected">
-                                                            Rejected
-                                                        </option>
-                                                    </select>
-                                                </div>
-                                            </div>
-                                        </article>
-                                    );
-                                }
+                            {index === 0 && (
+                                <span className="top-match-badge">
+                                    TOP MATCH
+                                </span>
                             )}
                         </div>
+
+                        <p>
+                            {candidate.email ||
+                                'Email not available'}
+                        </p>
+
+                        {resume.fileName && (
+                            <span>
+                                Resume ·{' '}
+                                {resume.fileName}
+                            </span>
+                        )}
+                    </div>
+                </div>
+
+                <div className="candidate-score-area">
+                    <div>
+                        <span>AI MATCH</span>
+
+                        <strong>
+                            {score}%
+                        </strong>
+                    </div>
+
+                    <MatchRing
+                        score={score}
+                        label=""
+                        size="small"
+                    />
+                </div>
+            </div>
+
+            {/* MATCH BREAKDOWN */}
+
+            <div className="candidate-analysis">
+                <div className="candidate-analysis-heading">
+                    <div>
+                        <span className="eyebrow-text">
+                            MATCH ANALYSIS
+                        </span>
+
+                        <h4>
+                            Compatibility breakdown
+                        </h4>
+                    </div>
+
+                    <strong>
+                        {score}% overall
+                    </strong>
+                </div>
+
+                <div className="candidate-analysis-grid">
+                    <CandidateAnalysisBlock
+                        label="Required"
+                        analysis={required}
+                    />
+
+                    <CandidateAnalysisBlock
+                        label="Preferred"
+                        analysis={preferred}
+                    />
+                </div>
+            </div>
+
+            {/* DETECTED SKILLS */}
+
+            <div className="candidate-skills">
+                <div className="candidate-section-heading">
+                    <span>
+                        DETECTED SKILLS
+                    </span>
+
+                    <small>
+                        {skills.length}{' '}
+                        {skills.length === 1
+                            ? 'skill'
+                            : 'skills'}
+                    </small>
+                </div>
+
+                {skills.length > 0 ? (
+                    <div className="skill-chip-wrap">
+                        {skills.map(
+                            (skill, skillIndex) => {
+                                const skillName =
+                                    formatSkill(
+                                        skill
+                                    );
+
+                                if (!skillName) {
+                                    return null;
+                                }
+
+                                return (
+                                    <span
+                                        className="skill-chip"
+                                        key={
+                                            skill?._id ||
+                                            `${skillName}-${skillIndex}`
+                                        }
+                                    >
+                                        ✓ {skillName}
+                                    </span>
+                                );
+                            }
+                        )}
+                    </div>
+                ) : (
+                    <p className="detail-muted">
+                        No extracted skills.
+                    </p>
+                )}
+            </div>
+
+            {/* FOOTER */}
+
+            <div className="candidate-card-footer">
+                <p>
+                    Applied{' '}
+                    {formatDate(
+                        application.appliedAt
                     )}
-                </section>
-            </main>
+                </p>
+
+                <div className="candidate-status-actions">
+                    <StatusPill
+                        status={
+                            application.status ||
+                            'applied'
+                        }
+                    />
+
+                    <select
+                        value={
+                            application.status ||
+                            'applied'
+                        }
+                        disabled={updating}
+                        onChange={(event) =>
+                            onStatusChange(
+                                application._id,
+                                event.target.value
+                            )
+                        }
+                        aria-label={`Change status for ${candidate.name ||
+                            'candidate'
+                            }`}
+                    >
+                        <option value="applied">
+                            Applied
+                        </option>
+
+                        <option value="shortlisted">
+                            Shortlisted
+                        </option>
+
+                        <option value="interview">
+                            Interview
+                        </option>
+
+                        <option value="hired">
+                            Hired
+                        </option>
+
+                        <option value="rejected">
+                            Rejected
+                        </option>
+                    </select>
+                </div>
+            </div>
+        </article>
+    );
+}
+
+function CandidateAnalysisBlock({
+    label,
+    analysis,
+}) {
+    if (!analysis) {
+        return (
+            <div className="candidate-analysis-block">
+                <div className="candidate-analysis-block-header">
+                    <span>{label}</span>
+                    <strong>—</strong>
+                </div>
+
+                <p className="candidate-analysis-empty">
+                    Match breakdown will appear for
+                    newly submitted applications.
+                </p>
+            </div>
+        );
+    }
+
+    const coverage = Number.isFinite(
+        Number(analysis.coverage)
+    )
+        ? Number(analysis.coverage)
+        : 0;
+
+    const matched =
+        analysis.matchedSkills || [];
+
+    const missing =
+        analysis.missingSkills || [];
+
+    return (
+        <div className="candidate-analysis-block">
+            <div className="candidate-analysis-block-header">
+                <span>{label}</span>
+
+                <strong>
+                    {analysis.matched || 0}/
+                    {analysis.total || 0}
+                </strong>
+            </div>
+
+            <div className="candidate-analysis-progress">
+                <span
+                    style={{
+                        width: `${Math.max(
+                            0,
+                            Math.min(
+                                100,
+                                coverage
+                            )
+                        )}%`,
+                    }}
+                />
+            </div>
+
+            <div className="candidate-analysis-coverage">
+                {coverage}%
+                <small>coverage</small>
+            </div>
+
+            {matched.length > 0 && (
+                <div className="candidate-analysis-skills">
+                    <span>Matched</span>
+
+                    <div>
+                        {matched.map(
+                            (skill, index) => (
+                                <em
+                                    key={`${skill}-${index}`}
+                                >
+                                    ✓{' '}
+                                    {formatSkill(
+                                        skill
+                                    )}
+                                </em>
+                            )
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {missing.length > 0 && (
+                <div className="candidate-analysis-skills missing">
+                    <span>Missing</span>
+
+                    <div>
+                        {missing.map(
+                            (skill, index) => (
+                                <em
+                                    key={`${skill}-${index}`}
+                                >
+                                    {formatSkill(
+                                        skill
+                                    )}
+                                </em>
+                            )
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function CandidatePipelineStage({
+    label,
+    value,
+    active,
+}) {
+    return (
+        <div
+            className={`candidate-pipeline-stage ${active ? 'active' : ''
+                }`}
+        >
+            <div className="candidate-pipeline-number">
+                {value}
+            </div>
+
+            <span>{label}</span>
         </div>
     );
 }

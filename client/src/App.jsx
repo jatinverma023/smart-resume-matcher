@@ -20,12 +20,12 @@ function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#050814] flex items-center justify-center">
-        <div className="text-center">
-          <div className="mx-auto h-10 w-10 rounded-full border-2 border-slate-700 border-t-blue-500 animate-spin" />
+      <div className="light-loading-state" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f7f9fc' }}>
+        <div style={{ textAlign: 'center' }}>
+          <span className="light-loading-spinner" aria-hidden="true" />
 
-          <p className="mt-4 text-sm text-slate-400">
-            Loading workspace...
+          <p style={{ marginTop: '1rem', color: '#687895', fontSize: '0.875rem' }}>
+            Loading workspace…
           </p>
         </div>
       </div>
