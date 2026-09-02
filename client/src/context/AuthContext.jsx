@@ -24,6 +24,13 @@ export function AuthProvider({ children }) {
     useEffect(() => {
         const loadUser = async () => {
             if (!token) {
+                // Preview mode: allow dashboard mock without backend (use ?preview=1)
+                const isPreview = typeof window !== 'undefined' && window.location.search.includes('preview');
+                if (isPreview) {
+                    setUser({ name: 'Alex Candidate', email: 'alex@preview.local', role: 'candidate' });
+                    setLoading(false);
+                    return;
+                }
                 setLoading(false);
                 return;
             }

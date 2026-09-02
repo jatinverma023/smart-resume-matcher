@@ -1,4 +1,4 @@
-// CandidateDashboard.jsx
+// CandidateDashboard.jsx — SIMPLE PROFESSIONAL EDITION
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast, { Toaster } from 'react-hot-toast';
@@ -6,599 +6,284 @@ import toast, { Toaster } from 'react-hot-toast';
 import { getCandidateDashboard } from '../api/dashboard';
 import { getMyResumes, uploadResume } from '../api/resumes';
 import {
-    EmptyState,
-    MatchRing,
-    MetricCard,
     StatusPill,
     WorkspaceShell,
 } from '../components/WorkspaceShell';
 
+/* helpers */
+function getSkillName(skill) { return typeof skill === 'string' ? skill : skill?.name; }
+function getSkillCategory(skill) { return typeof skill === 'object' && skill?.category ? skill.category : 'General'; }
+function getGreeting() { const h = new Date().getHours(); if (h < 12) return 'Good morning'; if (h < 17) return 'Good afternoon'; return 'Good evening'; }
 
-
-/* ────────────────────── helpers ────────────────────── */
-
-function getSkillName(skill) {
-    return typeof skill === 'string' ? skill : skill?.name;
-}
-
-function getGreeting() {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    return 'Good evening';
-}
-
-const chipColors = [
-    { bg: '#eef2ff', text: '#4338ca', border: '#c7d2fe' },
-    { bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0' },
-    { bg: '#fef3c7', text: '#b45309', border: '#fde68a' },
-    { bg: '#fce7f3', text: '#be185d', border: '#fbcfe8' },
-    { bg: '#f0f9ff', text: '#0369a1', border: '#bae6fd' },
-    { bg: '#faf5ff', text: '#7c3aed', border: '#ddd6fe' },
-    { bg: '#fff7ed', text: '#c2410c', border: '#fed7aa' },
-    { bg: '#f1f5f9', text: '#334155', border: '#cbd5e1' },
-];
-
-/* ────────────────── animated counter ───────────────── */
-
-function useCountUp(target, duration = 1200) {
-    const [count, setCount] = useState(0);
-
+function useCountUp(target, duration = 1000) {
+    const [c, setC] = useState(0);
     useEffect(() => {
-        if (target === 0) {
-            setCount(0);
-            return;
-        }
-
-        let start = 0;
-        const step = target / (duration / 16);
-        const timer = setInterval(() => {
-            start += step;
-            if (start >= target) {
-                setCount(target);
-                clearInterval(timer);
-            } else {
-                setCount(Math.floor(start));
-            }
-        }, 16);
-
-        return () => clearInterval(timer);
+        if (target === 0) { setC(0); return; }
+        let s = 0; const step = target / (duration / 16);
+        const t = setInterval(() => { s += step; if (s >= target) { setC(target); clearInterval(t); } else setC(Math.floor(s)); }, 16);
+        return () => clearInterval(t);
     }, [target, duration]);
-
-    return count;
+    return c;
 }
-
-/* ────────────────── skeleton loader ────────────────── */
 
 function DashboardSkeleton() {
     return (
-        <div className="cd-skeleton-wrap">
-            <div className="cd-skeleton-hero">
-                <div className="cd-skeleton-circle cd-shimmer" />
-                <div className="cd-skeleton-hero-text">
-                    <div className="cd-skeleton-line cd-w60 cd-shimmer" />
-                    <div className="cd-skeleton-line cd-w90 cd-shimmer" />
-                    <div className="cd-skeleton-line cd-w40 cd-shimmer" />
-                </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ height: 180, borderRadius: 16, background: '#f1f5f9', animation: 'pulse 1.5s infinite' }} />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
+                {[1, 2, 3].map(i => <div key={i} style={{ height: 90, borderRadius: 12, background: '#f1f5f9', animation: 'pulse 1.5s infinite' }} />)}
             </div>
-
-            <div className="cd-skeleton-metrics">
-                {[1, 2, 3].map((i) => (
-                    <div key={i} className="cd-skeleton-card cd-shimmer" />
-                ))}
-            </div>
-
-            <div className="cd-skeleton-grid">
-                <div className="cd-skeleton-panel cd-shimmer" />
-                <div className="cd-skeleton-panel cd-shimmer" />
+            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 12 }}>
+                {[1, 2].map(i => <div key={i} style={{ height: 300, borderRadius: 16, background: '#f1f5f9' }} />)}
             </div>
         </div>
     );
 }
 
-/* ────────────────── animation variants ─────────────── */
+const fade = { hidden: { opacity: 0, y: 12 }, visible: (i) => ({ opacity: 1, y: 0, transition: { delay: i * 0.06, duration: 0.45, ease: [0.25, 0.46, 0.45, 0.94] } }) };
+const stagger = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.05 } } };
+const item = { hidden: { opacity: 0, y: 8 }, visible: { opacity: 1, y: 0, transition: { duration: 0.3 } } };
 
-const fadeUp = {
-    hidden: { opacity: 0, y: 24 },
-    visible: (i) => ({
-        opacity: 1,
-        y: 0,
-        transition: { delay: i * 0.12, duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] },
-    }),
-};
-
-const staggerContainer = {
-    hidden: { opacity: 0 },
-    visible: {
-        opacity: 1,
-        transition: { staggerChildren: 0.08 },
-    },
-};
-
-const staggerItem = {
-    hidden: { opacity: 0, y: 12 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.35 } },
-};
-
-const chipVariant = {
-    hidden: { opacity: 0, scale: 0.8 },
-    visible: { opacity: 1, scale: 1, transition: { type: 'spring', stiffness: 300, damping: 20 } },
-};
-
-/* ──────────────── main dashboard component ─────────── */
-
-function CandidateDashboard() {
+export default function CandidateDashboard() {
     const [dashboard, setDashboard] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [uploading, setUploading] = useState(false);
-    const [isDragging, setIsDragging] = useState(false);
-    const fileInputRef = useRef(null);
+    const [dragging, setDragging] = useState(false);
+    const fileRef = useRef(null);
+    const [filter, setFilter] = useState('All');
 
-    /* ── data fetching (untouched backend logic) ── */
+    const MOCK = {
+        applications: [
+            { _id: 'a1', job: { title: 'Senior Frontend Engineer', company: 'Flipkart', location: 'Bengaluru · Remote', type: 'Full-time' }, matchScore: 91, status: 'shortlisted', date: '12 Aug 2026' },
+            { _id: 'a2', job: { title: 'Full-Stack Developer', company: 'Swiggy', location: 'Remote', type: 'Full-time' }, matchScore: 84, status: 'interview', date: '10 Aug 2026' },
+            { _id: 'a3', job: { title: 'React Developer', company: 'PhonePe', location: 'Pune', type: 'Full-time' }, matchScore: 76, status: 'applied', date: '08 Aug 2026' },
+        ],
+        resumes: [{ _id: 'r1', fileName: 'Alex_Candidate_Resume.pdf', skills: [{ name: 'React', category: 'Frontend' }, { name: 'TypeScript', category: 'Programming' }, { name: 'Node.js', category: 'Backend' }, { name: 'Tailwind CSS', category: 'Frontend' }, { name: 'MongoDB', category: 'Databases' }, { name: 'PostgreSQL', category: 'Databases' }, { name: 'Docker', category: 'DevOps & Cloud' }, { name: 'AWS', category: 'DevOps & Cloud' }, { name: 'Python', category: 'Programming' }, { name: 'Git', category: 'Tools' }] }],
+        averageMatchScore: 83,
+    };
 
     useEffect(() => {
-        let cancelled = false;
-
-        async function loadDashboard() {
+        let off = false;
+        async function load() {
+            const isPreview = typeof window !== 'undefined' && window.location.search.includes('preview');
             try {
                 const token = localStorage.getItem('token');
+                if (!token && isPreview) { await new Promise(r => setTimeout(r, 600)); if (!off) setDashboard(MOCK); return; }
                 const data = await getCandidateDashboard(token);
-                if (!cancelled) setDashboard(data.dashboard);
-            } catch (requestError) {
-                if (!cancelled) setError(requestError.message || 'Unable to load dashboard');
-            } finally {
-                if (!cancelled) setLoading(false);
-            }
+                if (!off) setDashboard(data.dashboard);
+            } catch (e) {
+                if (!off) {
+                    if (typeof window !== 'undefined' && window.location.search.includes('preview')) { setDashboard(MOCK); setError(''); }
+                    else setError(e.message || 'Unable to load dashboard');
+                }
+            } finally { if (!off) setLoading(false); }
         }
-
-        void loadDashboard();
-        return () => { cancelled = true; };
+        void load(); return () => { off = true; };
     }, []);
 
-    /* ── derived data ── */
-
-    const applications = useMemo(() => dashboard?.applications ?? [], [dashboard]);
+    const apps = useMemo(() => dashboard?.applications ?? [], [dashboard]);
     const resumes = useMemo(() => dashboard?.resumes ?? [], [dashboard]);
-    const latestResume = resumes[0];
+    const latest = resumes[0];
+    const skills = useMemo(() => (latest?.skills ?? []).map(s => ({ name: getSkillName(s), cat: getSkillCategory(s) })).filter(s => s.name), [latest]);
+    const cats = useMemo(() => ['All', ...Array.from(new Set(skills.map(s => s.cat)))], [skills]);
+    const filtered = useMemo(() => filter === 'All' ? skills : skills.filter(s => s.cat === filter), [skills, filter]);
 
-    const detectedSkills = useMemo(
-        () => (latestResume?.skills ?? []).map(getSkillName).filter(Boolean),
-        [latestResume]
-    );
-
-    const profileStrength = resumes.length
-        ? Math.min(100, 55 + Math.min(detectedSkills.length * 5, 45))
-        : 0;
-
-    const averageMatch = Math.round(Number(dashboard?.averageMatchScore ?? 0));
-
-    /* ── animated counters ── */
-    const animatedResumes = useCountUp(resumes.length);
-    const animatedApps = useCountUp(applications.length);
-    const animatedMatch = useCountUp(averageMatch);
-
-    /* ── resume upload (backend logic untouched) ── */
+    const strength = resumes.length ? Math.min(100, 55 + Math.min(skills.length * 5, 45)) : 0;
+    const avg = Math.round(Number(dashboard?.averageMatchScore ?? 0));
+    const cResumes = useCountUp(resumes.length);
+    const cApps = useCountUp(apps.length);
+    const cAvg = useCountUp(avg);
+    const cStr = useCountUp(strength, 1200);
 
     const processFile = useCallback(async (file) => {
         if (!file) return;
-
-        if (file.type !== 'application/pdf') {
-            toast.error('Please upload a PDF resume.');
-            return;
-        }
-
-        try {
-            setUploading(true);
-            setError('');
-
-            const token = localStorage.getItem('token');
-            await uploadResume(token, file);
-            const resumesData = await getMyResumes(token);
-
-            setDashboard((current) =>
-                current && ({
-                    ...current,
-                    resumes: resumesData.resumes ?? [],
-                    resumeCount: resumesData.count ?? 0,
-                })
-            );
-
-            toast.success('Resume uploaded & skills extracted!');
-        } catch (uploadError) {
-            toast.error(uploadError.message || 'Unable to upload resume');
-        } finally {
-            setUploading(false);
-        }
+        if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) { toast.error('Please upload a PDF.'); return; }
+        try { setUploading(true); setError(''); const token = localStorage.getItem('token'); await uploadResume(token, file); const r = await getMyResumes(token); setDashboard(c => c && ({ ...c, resumes: r.resumes ?? [] })); toast.success('Resume uploaded'); } catch (e) { toast.error(e.message || 'Upload failed'); } finally { setUploading(false); }
     }, []);
+    const onUpload = async (e) => { await processFile(e.target.files?.[0]); e.target.value = ''; };
+    const onDragOver = (e) => { e.preventDefault(); setDragging(true); };
+    const onDragLeave = (e) => { e.preventDefault(); setDragging(false); };
+    const onDrop = async (e) => { e.preventDefault(); setDragging(false); await processFile(e.dataTransfer.files?.[0]); };
+    const goJobs = () => window.location.href = '/jobs';
+    const goApps = () => window.location.href = '/applications';
 
-    const handleUploadResume = async (event) => {
-        const file = event.target.files?.[0];
-        await processFile(file);
-        event.target.value = '';
-    };
-
-    /* ── drag and drop handlers ── */
-
-    const handleDragOver = (e) => {
-        e.preventDefault();
-        setIsDragging(true);
-    };
-
-    const handleDragLeave = (e) => {
-        e.preventDefault();
-        setIsDragging(false);
-    };
-
-    const handleDrop = async (e) => {
-        e.preventDefault();
-        setIsDragging(false);
-        const file = e.dataTransfer.files?.[0];
-        await processFile(file);
-    };
-
-    const goToJobs = () => { window.location.href = '/jobs'; };
-    const goToApplications = () => { window.location.href = '/applications'; };
-
-    /* ── strength status ── */
-
-    const strengthLabel = profileStrength >= 80
-        ? 'Excellent'
-        : profileStrength >= 60
-            ? 'Strong'
-            : profileStrength >= 30
-                ? 'Building up'
-                : 'Just starting';
-
-    const strengthColor = profileStrength >= 80
-        ? '#10b981'
-        : profileStrength >= 60
-            ? '#6366f1'
-            : profileStrength >= 30
-                ? '#f59e0b'
-                : '#94a3b8';
-
-    /* ────────────────── JSX ────────────────── */
+    const label = strength >= 80 ? 'Excellent' : strength >= 60 ? 'Strong' : strength >= 30 ? 'In progress' : 'Get started';
+    const next = strength < 60 ? 60 : strength < 80 ? 80 : 100;
 
     return (
         <WorkspaceShell
             title={`${getGreeting()} 👋`}
-            subtitle="Keep your resume strong and track every opportunity in one place."
+            subtitle="Track applications, keep your resume sharp, and find roles that fit."
             action={
-                <button className="cd-header-action" type="button" onClick={goToJobs}>
-                    <span>Discover jobs</span>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M5 12h14M12 5l7 7-7 7" />
-                    </svg>
-                </button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={goApps} style={{ padding: '9px 14px', borderRadius: 10, border: '1px solid #e2e8f0', background: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>Applications</button>
+                    <button onClick={goJobs} style={{ padding: '9px 16px', borderRadius: 10, border: '1px solid #0f172a', background: '#0f172a', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>Find jobs →</button>
+                </div>
             }
         >
-            <Toaster
-                position="top-right"
-                toastOptions={{
-                    duration: 4000,
-                    style: {
-                        background: '#1e293b',
-                        color: '#f8fafc',
-                        borderRadius: '12px',
-                        fontSize: '0.9rem',
-                        padding: '12px 20px',
-                    },
-                    success: { iconTheme: { primary: '#10b981', secondary: '#f8fafc' } },
-                    error: { iconTheme: { primary: '#ef4444', secondary: '#f8fafc' } },
-                }}
-            />
+            <Toaster position="top-right" toastOptions={{ style: { background: '#0f172a', color: '#fff', borderRadius: 12, fontSize: 13 } }} />
+            <style>{`
+                @import url('https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap');
+                *{ font-family: Inter, system-ui, -apple-system, sans-serif; }
+                .pro-card{ background:#fff; border:1px solid #e2e8f0; border-radius:16px; }
+                .pro-shadow{ box-shadow: 0 1px 2px rgba(15,23,42,0.04), 0 8px 24px rgba(15,23,42,0.04); }
+                .pro-ring{ --v: 0; --c: #0f172a; width:96px; height:96px; border-radius:50%; display:grid; place-items:center; background: conic-gradient(var(--c) calc(var(--v)*1%), #f1f5f9 0); position:relative; flex-shrink:0; }
+                .pro-ring::before{ content:''; position:absolute; inset:8px; border-radius:50%; background:#fff; }
+                .pro-ring > span{ position:relative; z-index:1; text-align:center; line-height:1; }
+                .pro-grid{ display:grid; grid-template-columns: 1.35fr 0.85fr; gap:16px; }
+                .pro-bento{ display:grid; grid-template-columns: 1.45fr 1fr; gap:16px; }
+                .pro-metric{ display:flex; align-items:center; gap:12px; padding:16px; }
+                .pro-icon{ width:40px; height:40px; border-radius:10px; display:grid; place-items:center; font-size:14px; flex-shrink:0; border:1px solid #e2e8f0; background:#f8fafc; color:#0f172a; }
+                .pro-chip{ display:inline-flex; align-items:center; padding:6px 10px; border-radius:999px; font-size:12px; font-weight:600; border:1px solid #e2e8f0; background:#f8fafc; color:#334155; }
+                .pro-chip-dark{ background:#0f172a; color:#fff; border-color:#0f172a; }
+                @media(max-width: 980px){ .pro-grid, .pro-bento{ grid-template-columns:1fr; } }
+            `}</style>
 
             <AnimatePresence mode="wait">
-                {loading ? (
-                    <motion.div
-                        key="skeleton"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0, transition: { duration: 0.2 } }}
-                    >
-                        <DashboardSkeleton />
-                    </motion.div>
-                ) : error && !dashboard ? (
-                    <motion.div
-                        key="error"
-                        className="cd-error-state"
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0 }}
-                    >
-                        <div className="cd-error-icon">⚠️</div>
-                        <h2>We couldn't load your dashboard</h2>
-                        <p>{error}</p>
-                        <button className="cd-btn cd-btn-secondary" type="button" onClick={() => window.location.reload()}>
-                            Try again
-                        </button>
-                    </motion.div>
-                ) : (
-                    <motion.div
-                        key="content"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                    >
-                        {/* ── HERO SECTION ── */}
-                        <motion.section
-                            className="cd-hero"
-                            custom={0}
-                            initial="hidden"
-                            animate="visible"
-                            variants={fadeUp}
-                        >
-                            <div className="cd-hero-left">
-                                <MatchRing score={profileStrength} label="Profile" />
-                                <div className="cd-hero-copy">
-                                    <div className="cd-strength-badge" style={{ color: strengthColor, borderColor: strengthColor, background: `${strengthColor}10` }}>
-                                        <span className="cd-strength-dot" style={{ background: strengthColor }} />
-                                        {strengthLabel}
-                                    </div>
-                                    <h2>Profile Strength</h2>
-                                    <p>
-                                        {resumes.length
-                                            ? 'Your resume is ready for matching. Keep improving it as you gain new skills and experience.'
-                                            : 'Upload your first resume to build a skill profile and receive match insights.'}
-                                    </p>
-                                </div>
-                            </div>
+                {loading ? <motion.div key="s" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><DashboardSkeleton /></motion.div>
+                    : error && !dashboard ? <motion.div key="e" style={{ textAlign: 'center', padding: 40, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16 }}><p>{error}</p><button onClick={() => window.location.reload()} style={{ marginTop: 12, padding: '8px 14px', borderRadius: 10, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer' }}>Retry</button></motion.div>
+                        : (
+                            <motion.div key="c" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
 
-                            <div
-                                className={`cd-dropzone ${isDragging ? 'cd-dropzone-active' : ''} ${uploading ? 'cd-dropzone-uploading' : ''}`}
-                                onDragOver={handleDragOver}
-                                onDragLeave={handleDragLeave}
-                                onDrop={handleDrop}
-                                onClick={() => !uploading && fileInputRef.current?.click()}
-                            >
-                                <input
-                                    ref={fileInputRef}
-                                    type="file"
-                                    accept=".pdf,application/pdf"
-                                    onChange={handleUploadResume}
-                                    hidden
-                                />
-
-                                {uploading ? (
-                                    <div className="cd-dropzone-uploading-content">
-                                        <div className="cd-upload-spinner" />
-                                        <span>Analyzing your resume…</span>
-                                    </div>
-                                ) : (
-                                    <>
-                                        <div className="cd-dropzone-icon">
-                                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                                                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                                                <polyline points="14,2 14,8 20,8" />
-                                                <line x1="12" y1="18" x2="12" y2="12" />
-                                                <polyline points="9,15 12,12 15,15" />
-                                            </svg>
+                                {/* HERO — clean, professional */}
+                                <motion.section className="pro-card pro-shadow" custom={0} initial="hidden" animate="visible" variants={fade} style={{ padding: 22, display: 'grid', gridTemplateColumns: '1fr', gap: 16 }}>
+                                    <div className="pro-grid">
+                                        <div style={{ display: 'flex', gap: 18, alignItems: 'center' }}>
+                                            <div className="pro-ring" style={{ '--v': cStr, '--c': '#0f172a' }}>
+                                                <span>
+                                                    <strong style={{ display: 'block', fontSize: 20, fontWeight: 800, letterSpacing: '-0.03em', color: '#0f172a' }}>{cStr}%</strong>
+                                                    <small style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', color: '#64748b' }}>STRENGTH</small>
+                                                </span>
+                                            </div>
+                                            <div style={{ minWidth: 0, flex: 1 }}>
+                                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#0f172a', background: '#f1f5f9', border: '1px solid #e2e8f0', padding: '5px 8px', borderRadius: 999 }}>
+                                                    <span style={{ width: 6, height: 6, borderRadius: 50, background: '#10b981', display: 'inline-block' }} /> {label.toUpperCase()}
+                                                </div>
+                                                <h2 style={{ margin: '10px 0 6px', fontSize: 18, fontWeight: 800, letterSpacing: '-0.02em', color: '#0f172a', lineHeight: 1.2 }}>Your profile is {label.toLowerCase()}</h2>
+                                                <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: '#64748b', maxWidth: 520 }}>
+                                                    {resumes.length ? <>Based on <b style={{ color: '#0f172a' }}>{skills.length} skills</b> from <b style={{ color: '#0f172a' }}>{latest?.fileName}</b>. Avg. match <b style={{ color: '#0f172a' }}>{avg}%</b> across applications.</> : 'Upload a PDF resume to get a strength score and instant job matches.'}
+                                                </p>
+                                                <div style={{ marginTop: 12, height: 6, background: '#f1f5f9', borderRadius: 999, overflow: 'hidden', maxWidth: 420 }}>
+                                                    <motion.div initial={{ width: 0 }} animate={{ width: `${strength}%` }} transition={{ duration: 1, ease: 'easeOut' }} style={{ height: '100%', background: '#0f172a', borderRadius: 999 }} />
+                                                </div>
+                                                <div style={{ marginTop: 6, fontSize: 11, color: '#94a3b8' }}>{strength}% • {next - strength > 0 ? `${next - strength}% to ${next}%` : 'All set'} • {resumes.length} resume{resumes.length !== 1 ? 's' : ''}</div>
+                                            </div>
                                         </div>
-                                        <strong>Drop your resume here</strong>
-                                        <span className="cd-dropzone-hint">or click to browse · PDF only</span>
-                                    </>
-                                )}
-                            </div>
-                        </motion.section>
 
-                        {/* ── METRICS ── */}
-                        <motion.section
-                            className="cd-metrics"
-                            custom={1}
-                            initial="hidden"
-                            animate="visible"
-                            variants={fadeUp}
-                        >
-                            <div className="cd-metric-card cd-metric-green">
-                                <div className="cd-metric-icon-wrap cd-metric-icon-green">
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                                        <polyline points="14,2 14,8 20,8" />
-                                    </svg>
-                                </div>
-                                <div className="cd-metric-data">
-                                    <span className="cd-metric-value">{animatedResumes}</span>
-                                    <span className="cd-metric-label">Resumes</span>
-                                </div>
-                            </div>
-
-                            <div className="cd-metric-card cd-metric-blue">
-                                <div className="cd-metric-icon-wrap cd-metric-icon-blue">
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                        <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
-                                        <path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16" />
-                                    </svg>
-                                </div>
-                                <div className="cd-metric-data">
-                                    <span className="cd-metric-value">{animatedApps}</span>
-                                    <span className="cd-metric-label">Applications</span>
-                                </div>
-                            </div>
-
-                            <div className="cd-metric-card cd-metric-purple">
-                                <div className="cd-metric-icon-wrap cd-metric-icon-purple">
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                        <polyline points="23,6 13.5,15.5 8.5,10.5 1,18" />
-                                        <polyline points="17,6 23,6 23,12" />
-                                    </svg>
-                                </div>
-                                <div className="cd-metric-data">
-                                    <span className="cd-metric-value">{animatedMatch}%</span>
-                                    <span className="cd-metric-label">Avg. Match</span>
-                                </div>
-                            </div>
-                        </motion.section>
-
-                        {/* ── MAIN GRID ── */}
-                        <motion.section
-                            className="cd-main-grid"
-                            custom={2}
-                            initial="hidden"
-                            animate="visible"
-                            variants={fadeUp}
-                        >
-                            {/* ── Applications Panel ── */}
-                            <article className="cd-panel">
-                                <div className="cd-panel-header">
-                                    <div>
-                                        <h2>Recent Applications</h2>
-                                        <p className="cd-panel-subtitle">Track where you stand in each hiring process</p>
+                                        <div
+                                            onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
+                                            onClick={() => !uploading && fileRef.current?.click()}
+                                            style={{
+                                                border: `1px dashed ${dragging ? '#0f172a' : '#cbd5e1'}`, borderRadius: 14, background: dragging ? '#f8fafc' : '#fff',
+                                                padding: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', cursor: 'pointer', minHeight: 160, transition: 'all 0.15s'
+                                            }}>
+                                            <input ref={fileRef} type="file" accept=".pdf,application/pdf" onChange={onUpload} hidden />
+                                            <div style={{ width: 44, height: 44, borderRadius: 12, background: '#f8fafc', border: '1px solid #e2e8f0', display: 'grid', placeItems: 'center', marginBottom: 10 }}>
+                                                {uploading ? <span style={{ width: 18, height: 18, border: '2px solid #e2e8f0', borderTopColor: '#0f172a', borderRadius: 50, display: 'inline-block', animation: 'spin 0.8s linear infinite' }} /> : <span style={{ fontSize: 18 }}>＋</span>}
+                                            </div>
+                                            <strong style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{uploading ? 'Analyzing…' : 'Upload resume'}</strong>
+                                            <span style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>{uploading ? 'Extracting skills' : 'Drag & drop PDF, or click to browse'}</span>
+                                            <span style={{ fontSize: 11, color: '#94a3b8', marginTop: 6, background: '#f8fafc', border: '1px solid #f1f5f9', padding: '4px 8px', borderRadius: 999 }}>PDF • 5 MB max</span>
+                                            <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+                                        </div>
                                     </div>
-                                    {applications.length > 0 && (
-                                        <button className="cd-btn cd-btn-ghost" type="button" onClick={goToApplications}>
-                                            View all
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                <polyline points="9,18 15,12 9,6" />
-                                            </svg>
-                                        </button>
-                                    )}
-                                </div>
+                                </motion.section>
 
-                                {applications.length ? (
-                                    <motion.div
-                                        className="cd-application-list"
-                                        variants={staggerContainer}
-                                        initial="hidden"
-                                        animate="visible"
-                                    >
-                                        {applications.slice(0, 5).map((application) => {
-                                            const job = application.job ?? {};
-                                            const initial = job.company?.charAt(0)?.toUpperCase() || 'J';
+                                {/* METRICS */}
+                                <motion.section custom={1} initial="hidden" animate="visible" variants={fade} style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginTop: 12 }}>
+                                    {[
+                                        { k: 'Resumes', v: cResumes, sub: 'Ready to match', icon: '▤' },
+                                        { k: 'Applications', v: cApps, sub: 'In progress', icon: '◎' },
+                                        { k: 'Average match', v: `${cAvg}%`, sub: 'Across all roles', icon: '✦' },
+                                    ].map((m, i) => (
+                                        <motion.div key={m.k} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 + i * 0.05 }} className="pro-card pro-metric pro-shadow" whileHover={{ y: -1 }}>
+                                            <div className="pro-icon">{m.icon}</div>
+                                            <div><div style={{ fontSize: 20, fontWeight: 800, letterSpacing: '-0.02em', color: '#0f172a', lineHeight: 1 }}>{m.v}</div><div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', color: '#64748b', marginTop: 2 }}>{m.k.toUpperCase()}</div><div style={{ fontSize: 11, color: '#94a3b8' }}>{m.sub}</div></div>
+                                        </motion.div>
+                                    ))}
+                                </motion.section>
 
-                                            return (
-                                                <motion.div
-                                                    className="cd-app-row"
-                                                    key={application._id}
-                                                    variants={staggerItem}
-                                                    whileHover={{ x: 4, backgroundColor: '#f8fafc' }}
-                                                    transition={{ duration: 0.15 }}
-                                                >
-                                                    <span className="cd-company-avatar">
-                                                        {initial}
-                                                    </span>
+                                {/* BENTO */}
+                                <motion.section className="pro-bento" custom={2} initial="hidden" animate="visible" variants={fade} style={{ marginTop: 12 }}>
+                                    {/* Applications */}
+                                    <div className="pro-card" style={{ padding: 16 }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 12, marginBottom: 12 }}>
+                                            <div><h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: '#0f172a' }}>Recent applications</h3><p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>Your latest 3 submissions</p></div>
+                                            {apps.length > 0 && <button onClick={goApps} style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #e2e8f0', background: '#fff', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>View all →</button>}
+                                        </div>
+                                        {apps.length ? (
+                                            <motion.div variants={stagger} initial="hidden" animate="visible" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                                {apps.slice(0, 3).map(a => {
+                                                    const j = a.job ?? {};
+                                                    return (
+                                                        <motion.div key={a._id} variants={item} whileHover={{ y: -1 }} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12, borderRadius: 12, border: '1px solid #f1f5f9', background: '#fff', transition: 'all 0.15s' }}>
+                                                            <div style={{ width: 36, height: 36, borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 12, color: '#0f172a', flexShrink: 0 }}>{j.company?.[0]?.toUpperCase() || 'J'}</div>
+                                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                                <div style={{ fontWeight: 700, fontSize: 13, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{j.title || 'Job opportunity'}</div>
+                                                                <div style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{j.company} • {j.location}</div>
+                                                            </div>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                                <span style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', background: '#f8fafc', border: '1px solid #e2e8f0', padding: '4px 7px', borderRadius: 999 }}>{a.matchScore ?? 0}%</span>
+                                                                <StatusPill status={a.status} />
+                                                            </div>
+                                                        </motion.div>
+                                                    );
+                                                })}
+                                            </motion.div>
+                                        ) : (
+                                            <div style={{ textAlign: 'center', padding: '22px 12px', border: '1px dashed #e2e8f0', borderRadius: 12, background: '#f8fafc' }}>
+                                                <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>No applications yet</div>
+                                                <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>Apply to a job to see it here.</div>
+                                                <button onClick={goJobs} style={{ marginTop: 10, padding: '8px 12px', borderRadius: 10, background: '#0f172a', color: '#fff', border: 'none', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>Browse jobs</button>
+                                            </div>
+                                        )}
+                                    </div>
 
-                                                    <div className="cd-app-info">
-                                                        <strong className="cd-app-title">
-                                                            {job.title || 'Job opportunity'}
-                                                        </strong>
-                                                        <span className="cd-app-meta">
-                                                            {job.company || 'Company'}
-                                                            <span className="cd-dot">·</span>
-                                                            {job.location || 'Remote'}
-                                                        </span>
-                                                    </div>
-
-                                                    <div className="cd-app-right">
-                                                        <MatchRing
-                                                            score={application.matchScore ?? 0}
-                                                            label=""
-                                                            size="small"
-                                                        />
-                                                        <StatusPill status={application.status} />
-                                                    </div>
+                                    {/* Skills */}
+                                    <div className="pro-card" style={{ padding: 16 }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 12, marginBottom: 10 }}>
+                                            <div><h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: '#0f172a' }}>Your skills</h3><p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>{latest ? latest.fileName : 'No resume yet'}</p></div>
+                                            {skills.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, background: '#0f172a', color: '#fff', padding: '4px 8px', borderRadius: 999 }}>{skills.length}</span>}
+                                        </div>
+                                        {skills.length ? (
+                                            <>
+                                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                                                    {cats.map(c => (
+                                                        <button key={c} onClick={() => setFilter(c)} style={{ padding: '5px 9px', borderRadius: 999, border: '1px solid', fontSize: 11, fontWeight: 700, cursor: 'pointer', background: filter === c ? '#0f172a' : '#fff', color: filter === c ? '#fff' : '#334155', borderColor: filter === c ? '#0f172a' : '#e2e8f0' }}>{c}</button>
+                                                    ))}
+                                                </div>
+                                                <motion.div variants={stagger} initial="hidden" animate="visible" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                                    <AnimatePresence mode="popLayout">
+                                                        {filtered.map((s, i) => (
+                                                            <motion.span key={`${s.name}-${i}`} layout initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} transition={{ duration: 0.2 }} className="pro-chip">{s.name}</motion.span>
+                                                        ))}
+                                                    </AnimatePresence>
                                                 </motion.div>
-                                            );
-                                        })}
-                                    </motion.div>
-                                ) : (
-                                    <div className="cd-empty">
-                                        <div className="cd-empty-illustration">
-                                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
-                                                <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
-                                                <path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16" />
-                                            </svg>
-                                        </div>
-                                        <h3>No applications yet</h3>
-                                        <p>Discover roles that match your skills and apply with confidence.</p>
-                                        <button className="cd-btn cd-btn-primary" type="button" onClick={goToJobs}>
-                                            Browse open roles
-                                        </button>
+                                                <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
+                                                    <span style={{ fontSize: 11, color: '#64748b' }}>{filtered.length} shown</span>
+                                                    <button onClick={() => window.location.href = '/resumes'} style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', background: 'transparent', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Manage resumes</button>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div style={{ textAlign: 'center', padding: '22px 12px', border: '1px dashed #e2e8f0', borderRadius: 12, background: '#f8fafc' }}>
+                                                <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>No skills yet</div>
+                                                <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>Upload a resume — skills appear automatically.</div>
+                                            </div>
+                                        )}
                                     </div>
-                                )}
-                            </article>
+                                </motion.section>
 
-                            {/* ── Skills Panel ── */}
-                            <article className="cd-panel">
-                                <div className="cd-panel-header">
-                                    <div>
-                                        <h2>Detected Skills</h2>
-                                        <p className="cd-panel-subtitle">
-                                            {latestResume
-                                                ? `From ${latestResume.fileName}`
-                                                : 'Upload a resume to begin'}
-                                        </p>
-                                    </div>
-                                    {detectedSkills.length > 0 && (
-                                        <span className="cd-skill-count">
-                                            {detectedSkills.length} skills
-                                        </span>
-                                    )}
-                                </div>
+                                {/* Footer tip — minimal */}
+                                <motion.div custom={3} initial="hidden" animate="visible" variants={fade} style={{ marginTop: 12, display: 'flex', gap: 12, alignItems: 'center', padding: 14, borderRadius: 14, background: '#fff', border: '1px solid #e2e8f0' }}>
+                                    <div style={{ width: 32, height: 32, borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0', display: 'grid', placeItems: 'center', flexShrink: 0, fontSize: 14 }}>✦</div>
+                                    <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>Keep it sharp</div><div style={{ fontSize: 12, color: '#64748b', marginTop: 2, lineHeight: 1.5 }}>Add projects with your top 3 skills — recruiters filter by them and your match improves.</div></div>
+                                    <button onClick={goJobs} style={{ padding: '8px 12px', borderRadius: 10, background: '#fff', border: '1px solid #e2e8f0', fontWeight: 700, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>Find roles</button>
+                                </motion.div>
 
-                                {detectedSkills.length ? (
-                                    <motion.div
-                                        className="cd-skill-chips"
-                                        variants={staggerContainer}
-                                        initial="hidden"
-                                        animate="visible"
-                                    >
-                                        {detectedSkills.map((skill, i) => {
-                                            const color = chipColors[i % chipColors.length];
-                                            return (
-                                                <motion.span
-                                                    className="cd-chip"
-                                                    key={skill}
-                                                    variants={chipVariant}
-                                                    whileHover={{ scale: 1.06, y: -2 }}
-                                                    style={{
-                                                        background: color.bg,
-                                                        color: color.text,
-                                                        borderColor: color.border,
-                                                    }}
-                                                >
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                                                        <polyline points="20,6 9,17 4,12" />
-                                                    </svg>
-                                                    {skill}
-                                                </motion.span>
-                                            );
-                                        })}
-                                    </motion.div>
-                                ) : (
-                                    <div className="cd-empty">
-                                        <div className="cd-empty-illustration">
-                                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
-                                                <circle cx="12" cy="12" r="10" />
-                                                <path d="M12 6v6l4 2" />
-                                            </svg>
-                                        </div>
-                                        <h3>Your skills will appear here</h3>
-                                        <p>We automatically extract skills after you upload a resume.</p>
-                                    </div>
-                                )}
-                            </article>
-                        </motion.section>
-
-                        {/* ── QUICK TIP FOOTER ── */}
-                        <motion.section
-                            className="cd-tip"
-                            custom={3}
-                            initial="hidden"
-                            animate="visible"
-                            variants={fadeUp}
-                        >
-                            <span className="cd-tip-icon">💡</span>
-                            <p>
-                                <strong>Tip:</strong> Update your resume regularly with new projects and skills.
-                                Employers love candidates who show continuous learning.
-                            </p>
-                        </motion.section>
-                    </motion.div>
-                )}
+                            </motion.div>
+                        )}
             </AnimatePresence>
         </WorkspaceShell>
     );
 }
-
-export default CandidateDashboard;

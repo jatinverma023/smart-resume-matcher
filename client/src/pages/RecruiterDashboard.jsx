@@ -1,574 +1,170 @@
 import { useEffect, useMemo, useState } from 'react';
-
+import { getJobStats, getMyJobs } from '../api/jobs';
+import { getJobApplicants } from '../api/applications';
+import { WorkspaceShell } from '../components/WorkspaceShell';
 import { useAuth } from '../context/AuthContext';
 
-import { getMyJobs, getJobStats } from '../api/jobs';
-import { getJobApplicants } from '../api/applications';
-
-import {
-    EmptyState,
-    MetricCard,
-    StatusPill,
-    WorkspaceShell,
-} from '../components/WorkspaceShell';
+function getInitials(name = '') {
+    return name.split(' ').filter(Boolean).slice(0, 2).map(p => p[0]).join('').toUpperCase() || 'C';
+}
 
 function RecruiterDashboard() {
     const { user, token } = useAuth();
-
     const [jobs, setJobs] = useState([]);
-    const [jobStats, setJobStats] = useState({});
+    const [jobStats, setJobStatsMap] = useState({});
     const [applications, setApplications] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
 
-
-
     useEffect(() => {
         const loadDashboard = async () => {
-            if (!token) {
-                setLoading(false);
-                return;
-            }
-
+            if (!token) { setLoading(false); return; }
             try {
-                setLoading(true);
-                setError('');
-
-                // Get all jobs belonging to recruiter
+                setLoading(true); setError('');
                 const jobsData = await getMyJobs(token);
                 const recruiterJobs = jobsData.jobs || [];
-
                 setJobs(recruiterJobs);
-
-                if (recruiterJobs.length === 0) {
-                    setJobStats({});
-                    setApplications([]);
-                    return;
-                }
-
-                // Get stats and applications for every job
-                const results = await Promise.all(
-                    recruiterJobs.map(async (job) => {
-                        const jobId = job._id || job.id;
-
-                        try {
-                            const [statsData, applicationsData] = await Promise.all([
-                                getJobStats(token, jobId),
-                                getJobApplicants(token, jobId),
-                            ]);
-
-                            return {
-                                jobId,
-                                stats: statsData.stats || null,
-                                applications: applicationsData.applications || [],
-                            };
-                        } catch (jobError) {
-                            console.error(
-                                `Unable to load data for job ${jobId}:`,
-                                jobError
-                            );
-
-                            return {
-                                jobId,
-                                stats: null,
-                                applications: [],
-                            };
-                        }
-                    })
-                );
-
-                const statsMap = {};
-
-                results.forEach((result) => {
-                    statsMap[result.jobId] = result.stats;
-                });
-
-                setJobStats(statsMap);
-
-                const allApplications = results.flatMap(
-                    (result) => result.applications
-                );
-
-                setApplications(allApplications);
-            } catch (err) {
-                console.error('Recruiter dashboard error:', err);
-                setError(err.message || 'Unable to load recruiter dashboard');
-            } finally {
-                setLoading(false);
-            }
+                if (recruiterJobs.length === 0) { setJobStatsMap({}); setApplications([]); return; }
+                const results = await Promise.all(recruiterJobs.map(async (job) => {
+                    const jobId = job._id || job.id;
+                    try {
+                        const [statsData, applicationsData] = await Promise.all([getJobStats(token, jobId), getJobApplicants(token, jobId)]);
+                        return { jobId, stats: statsData.stats || null, applications: applicationsData.applications || [] };
+                    } catch (e) { return { jobId, stats: null, applications: [] }; }
+                }));
+                const statsMap = {}; results.forEach(r => { statsMap[r.jobId] = r.stats; });
+                setJobStatsMap(statsMap);
+                setApplications(results.flatMap(r => r.applications));
+            } catch (err) { setError(err.message || 'Unable to load recruiter dashboard'); }
+            finally { setLoading(false); }
         };
-
-        loadDashboard();
+        void loadDashboard();
     }, [token]);
 
-    const openJobs = jobs.filter((job) => job.status === 'open').length;
-
+    const openJobs = jobs.filter(j => j.status === 'open').length;
     const totalApplicants = applications.length;
-
     const averageMatch = useMemo(() => {
-        if (applications.length === 0) {
-            return 0;
-        }
-
-        const scores = applications
-            .map((application) => Number(application.matchScore))
-            .filter((score) => Number.isFinite(score));
-
-        if (scores.length === 0) {
-            return 0;
-        }
-
-        const total = scores.reduce((sum, score) => sum + score, 0);
-
-        return Math.round((total / scores.length) * 100) / 100;
+        if (!applications.length) return 0;
+        const scores = applications.map(a => Number(a.matchScore)).filter(Number.isFinite);
+        if (!scores.length) return 0;
+        return Math.round(scores.reduce((s, v) => s + v, 0) / scores.length * 100) / 100;
     }, [applications]);
-
-    const shortlisted = applications.filter(
-        (application) => application.status === 'shortlisted'
-    ).length;
-
-    const interviewed = applications.filter(
-        (application) => application.status === 'interview'
-    ).length;
-
-    const hired = applications.filter(
-        (application) => application.status === 'hired'
-    ).length;
-
-    const rejected = applications.filter(
-        (application) => application.status === 'rejected'
-    ).length;
-
-    const applied = applications.filter(
-        (application) => application.status === 'applied'
-    ).length;
-
-    const recentApplications = useMemo(() => {
-        return [...applications]
-            .sort((a, b) => {
-                const dateA = new Date(a.appliedAt || a.createdAt || 0);
-                const dateB = new Date(b.appliedAt || b.createdAt || 0);
-
-                return dateB - dateA;
-            })
-            .slice(0, 5);
-    }, [applications]);
-
-    const formatDate = (date) => {
-        if (!date) {
-            return '';
-        }
-
-        return new Date(date).toLocaleDateString('en-IN', {
-            day: 'numeric',
-            month: 'short',
-            year: 'numeric',
-        });
-    };
-
-    const getJobStats = (job) => {
-        const jobId = job._id || job.id;
-
-        return (
-            jobStats[jobId] || {
-                totalApplicants: 0,
-                averageMatchScore: 0,
-                statusCounts: {
-                    applied: 0,
-                    shortlisted: 0,
-                    interview: 0,
-                    rejected: 0,
-                    hired: 0,
-                },
-            }
-        );
-    };
-
-    const navigate = (path) => {
-        window.location.href = path;
-    };
+    const shortlisted = applications.filter(a => a.status === 'shortlisted').length;
+    const interviewed = applications.filter(a => a.status === 'interview').length;
+    const hired = applications.filter(a => a.status === 'hired').length;
+    const rejected = applications.filter(a => a.status === 'rejected').length;
+    const applied = applications.filter(a => a.status === 'applied').length;
+    const recentApplications = useMemo(() => [...applications].sort((a, b) => new Date(b.appliedAt || b.createdAt || 0) - new Date(a.appliedAt || a.createdAt || 0)).slice(0, 5), [applications]);
+    const navigate = (path) => { window.location.href = path; };
 
     if (loading) {
         return (
-            <WorkspaceShell
-                role="recruiter"
-                title="Recruiter overview"
-                subtitle="Loading your hiring intelligence..."
-            >
-                <div className="light-loading-state">
-                    <div className="light-loading-spinner" />
-                    <p>Loading recruiter workspace...</p>
-                </div>
+            <WorkspaceShell title="Recruiter overview" subtitle="Loading your hiring intelligence...">
+                <div className="pro-card" style={{ padding: 40, textAlign: 'center' }}><div style={{ width: 28, height: 28, border: '3px solid #e2e8f0', borderTopColor: '#0f172a', borderRadius: 50, margin: '0 auto 12px', animation: 'spin 0.8s linear infinite' }} /><div style={{ fontWeight: 700, color: '#0f172a' }}>Loading recruiter workspace…</div></div>
             </WorkspaceShell>
         );
     }
 
     return (
         <WorkspaceShell
-            role="recruiter"
-            title="Recruiter overview"
+            title={`Welcome, ${user?.name?.split(' ')?.[0] || 'Recruiter'}`}
             subtitle="Hiring intelligence across your active opportunities."
-            action={
-                <button
-                    type="button"
-                    className="primary-light-button"
-                    onClick={() => navigate('/recruiter/jobs/create')}
-                >
-                    + Post a job
-                </button>
-            }
+            action={<button onClick={() => navigate('/recruiter/jobs/create')} style={{ padding: '9px 16px', borderRadius: 10, background: '#0f172a', color: '#fff', border: '1px solid #0f172a', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>＋ Post a job</button>}
         >
-            {error && (
-                <div className="ui-message ui-message-error">
-                    {error}
-                </div>
-            )}
+            {error && <div style={{ padding: '10px 12px', borderRadius: 10, background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', fontSize: 12, marginBottom: 12 }}>{error}</div>}
 
-            {/* Overview metrics */}
-            <section className="recruiter-dashboard-metrics">
-                <MetricCard
-                    icon="◇"
-                    label="Open jobs"
-                    value={openJobs}
-                    tone="blue"
-                    detail="Active opportunities"
-                />
-
-                <MetricCard
-                    icon="□"
-                    label="Applicants"
-                    value={totalApplicants}
-                    tone="purple"
-                    detail="Across all jobs"
-                />
-
-                <MetricCard
-                    icon="✦"
-                    label="Average match"
-                    value={`${averageMatch}%`}
-                    tone="green"
-                    detail="AI compatibility score"
-                />
-
-                <MetricCard
-                    icon="✓"
-                    label="Shortlisted"
-                    value={shortlisted}
-                    tone="orange"
-                    detail="Candidates progressing"
-                />
-
-                <MetricCard
-                    icon="◆"
-                    label="Hired"
-                    value={hired}
-                    tone="blue"
-                    detail="Successful placements"
-                />
-            </section>
-
-            {/* Welcome panel */}
-            <section className="recruiter-dashboard-hero">
-                <div>
-                    <p className="eyebrow-text">RECRUITER INTELLIGENCE</p>
-
-                    <h2>
-                        Welcome back,{' '}
-                        <span>{user?.name?.split(' ')[0] || 'Recruiter'}.</span>
-                    </h2>
-
-                    <p>
-                        Review your hiring pipeline, monitor candidate quality, and
-                        identify the strongest matches for your open roles.
-                    </p>
-                </div>
-
-                <div className="recruiter-dashboard-hero-actions">
-                    <button
-                        type="button"
-                        className="secondary-light-button"
-                        onClick={() => navigate('/candidates')}
-                    >
-                        Browse candidates
-                    </button>
-
-                    <button
-                        type="button"
-                        className="primary-light-button"
-                        onClick={() => navigate('/recruiter/jobs/create')}
-                    >
-                        Create job
-                    </button>
-                </div>
-            </section>
-
-            {/* Hiring pipeline */}
-            <section className="recruiter-dashboard-panel">
-                <div className="recruiter-dashboard-panel-header">
-                    <div>
-                        <p className="eyebrow-text">HIRING INTELLIGENCE</p>
-                        <h2>Hiring pipeline</h2>
+            {/* Metrics */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 12, marginBottom: 12 }}>
+                {[
+                    ['Open jobs', openJobs, 'Active'],
+                    ['Applicants', totalApplicants, 'Across all jobs'],
+                    ['Avg match', `${averageMatch}%`, 'AI score'],
+                    ['Shortlisted', shortlisted, 'Progressing'],
+                    ['Hired', hired, 'Placed'],
+                ].map(([label, value, detail]) => (
+                    <div key={label} className="pro-card" style={{ padding: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
+                        <div style={{ width: 36, height: 36, borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0', display: 'grid', placeItems: 'center', fontSize: 13, color: '#0f172a' }}>◎</div>
+                        <div><div style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>{label}</div><div style={{ fontSize: 18, fontWeight: 800, color: '#0f172a' }}>{value}</div><div style={{ fontSize: 11, color: '#94a3b8' }}>{detail}</div></div>
                     </div>
+                ))}
+            </div>
 
-                    <span className="light-live-pill">
-                        Live data
-                    </span>
+            {/* Hero */}
+            <div className="pro-card" style={{ padding: 20, display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center', marginBottom: 12 }}>
+                <div><div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.1em', color: '#64748b' }}>RECRUITER INTELLIGENCE</div><h2 style={{ margin: '6px 0 0', fontSize: 20, fontWeight: 800, letterSpacing: '-0.02em', color: '#0f172a' }}>Drive hiring outcomes today.</h2><p style={{ margin: '6px 0 0', fontSize: 13, color: '#64748b', maxWidth: 520 }}>Review your hiring pipeline, monitor candidate quality, and identify the strongest matches.</p></div>
+                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                    <button onClick={() => navigate('/candidates')} style={{ padding: '9px 14px', borderRadius: 10, border: '1px solid #e2e8f0', background: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>Browse candidates</button>
+                    <button onClick={() => navigate('/recruiter/jobs/create')} style={{ padding: '9px 16px', borderRadius: 10, background: '#0f172a', color: '#fff', border: '1px solid #0f172a', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>Create job</button>
                 </div>
+            </div>
 
-                <div className="recruiter-pipeline-grid">
-                    <PipelineStage
-                        label="Applied"
-                        value={applied}
-                        total={totalApplicants}
-                        icon="●"
-                    />
-
-                    <PipelineStage
-                        label="Shortlisted"
-                        value={shortlisted}
-                        total={totalApplicants}
-                        icon="◇"
-                    />
-
-                    <PipelineStage
-                        label="Interview"
-                        value={interviewed}
-                        total={totalApplicants}
-                        icon="△"
-                    />
-
-                    <PipelineStage
-                        label="Hired"
-                        value={hired}
-                        total={totalApplicants}
-                        icon="◆"
-                    />
-
-                    <PipelineStage
-                        label="Rejected"
-                        value={rejected}
-                        total={totalApplicants}
-                        icon="×"
-                    />
+            {/* Pipeline */}
+            <div className="pro-card" style={{ padding: 16, marginBottom: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 12, borderBottom: '1px solid #f1f5f9', marginBottom: 12 }}>
+                    <div><div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.1em', color: '#64748b' }}>HIRING INTELLIGENCE</div><h3 style={{ margin: '4px 0 0', fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Hiring pipeline</h3></div><span style={{ padding: '6px 10px', borderRadius: 999, background: '#f8fafc', border: '1px solid #e2e8f0', fontSize: 11, fontWeight: 600 }}>Live data</span>
                 </div>
-            </section>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 10 }}>
+                    {[
+                        ['Applied', applied],
+                        ['Shortlisted', shortlisted],
+                        ['Interview', interviewed],
+                        ['Hired', hired],
+                        ['Rejected', rejected],
+                    ].map(([label, value]) => {
+                        const pct = totalApplicants ? Math.round((value / totalApplicants) * 100) : 0;
+                        return (
+                            <div key={label} style={{ padding: 12, borderRadius: 12, background: '#f8fafc', border: '1px solid #f1f5f9', textAlign: 'center' }}>
+                                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', color: '#94a3b8' }}>{label.toUpperCase()}</div>
+                                <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>{value}</div>
+                                <div style={{ height: 4, background: '#e2e8f0', borderRadius: 999, overflow: 'hidden', marginTop: 8 }}><div style={{ height: '100%', width: `${pct}%`, background: '#0f172a', borderRadius: 999 }} /></div>
+                                <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4 }}>{pct}%</div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
 
-            {/* Main dashboard content */}
-            <section className="recruiter-dashboard-grid">
-                {/* Recent applications */}
-                <div className="recruiter-dashboard-panel">
-                    <div className="recruiter-dashboard-panel-header">
-                        <div>
-                            <p className="eyebrow-text">LATEST INTELLIGENCE</p>
-                            <h2>Recent applications</h2>
-                        </div>
-
-                        <span className="light-success-pill">
-                            AI analyzed
-                        </span>
+            {/* Recent apps + jobs */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 12 }}>
+                <div className="pro-card" style={{ padding: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 12, borderBottom: '1px solid #f1f5f9', marginBottom: 12 }}>
+                        <div><div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.1em', color: '#64748b' }}>LATEST INTELLIGENCE</div><h3 style={{ margin: '4px 0 0', fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Recent applications</h3></div><span style={{ padding: '6px 10px', borderRadius: 999, background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#065f46', fontSize: 11, fontWeight: 700 }}>AI analyzed</span>
                     </div>
-
-                    <div className="recruiter-application-list">
-                        {recentApplications.length === 0 ? (
-                            <EmptyState
-                                title="No applications yet"
-                                detail="Applications from candidates will appear here."
-                                action={
-                                    <button
-                                        type="button"
-                                        className="secondary-light-button"
-                                        onClick={() => navigate('/recruiter/jobs/create')}
-                                    >
-                                        Post a job
-                                    </button>
-                                }
-                            />
-                        ) : (
-                            recentApplications.map((application) => {
-                                const candidate = application.candidate;
-                                const job = application.job;
-
+                    {recentApplications.length === 0 ? <div style={{ textAlign: 'center', padding: 32 }}><div style={{ fontWeight: 600, color: '#0f172a' }}>No applications yet</div><div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Applications will appear here once candidates apply.</div></div> : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {recentApplications.map(app => {
+                                const candidate = app.candidate; const job = app.job;
                                 return (
-                                    <div
-                                        key={application._id}
-                                        className="recruiter-application-row"
-                                    >
-                                        <div className="recruiter-application-person">
-                                            <div className="recruiter-candidate-avatar">
-                                                {getInitials(candidate?.name)}
-                                            </div>
-
-                                            <div>
-                                                <strong>
-                                                    {candidate?.name || 'Candidate'}
-                                                </strong>
-
-                                                <span>
-                                                    {job?.title || 'Job application'}
-                                                </span>
-
-                                                <small>
-                                                    Applied{' '}
-                                                    {formatDate(
-                                                        application.appliedAt ||
-                                                        application.createdAt
-                                                    )}
-                                                </small>
-                                            </div>
-                                        </div>
-
-                                        <div className="recruiter-application-result">
-                                            <div className="recruiter-match-score">
-                                                <strong>
-                                                    {application.matchScore ?? 0}%
-                                                </strong>
-                                                <span>Match</span>
-                                            </div>
-
-                                            <StatusPill
-                                                status={application.status || 'applied'}
-                                            />
-                                        </div>
+                                    <div key={app._id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
+                                        <div style={{ width: 36, height: 36, borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0', display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800, color: '#0f172a' }}>{getInitials(candidate?.name)}</div>
+                                        <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a' }}>{candidate?.name || 'Candidate'}</div><div style={{ fontSize: 11, color: '#64748b' }}>{job?.title || 'Role'} • {Math.round(Number(app.matchScore ?? 0))}% match</div></div>
+                                        <span style={{ padding: '4px 8px', borderRadius: 999, background: '#f8fafc', border: '1px solid #e2e8f0', fontSize: 10, fontWeight: 600 }}>{app.status}</span>
                                     </div>
                                 );
-                            })
-                        )}
-                    </div>
-                </div>
-
-                {/* Job postings */}
-                <div className="recruiter-dashboard-panel">
-                    <div className="recruiter-dashboard-panel-header">
-                        <div>
-                            <p className="eyebrow-text">YOUR OPPORTUNITIES</p>
-                            <h2>Job postings</h2>
+                            })}
                         </div>
-
-                        <button
-                            type="button"
-                            className="light-text-button"
-                            onClick={() => navigate('/recruiter/jobs')}
-                        >
-                            View all
-                        </button>
-                    </div>
-
-                    <div className="recruiter-dashboard-job-list">
-                        {jobs.length === 0 ? (
-                            <EmptyState
-                                title="No jobs posted"
-                                detail="Create your first opportunity to start receiving applications."
-                                action={
-                                    <button
-                                        type="button"
-                                        className="primary-light-button"
-                                        onClick={() =>
-                                            navigate('/recruiter/jobs/create')
-                                        }
-                                    >
-                                        Create your first job
-                                    </button>
-                                }
-                            />
-                        ) : (
-                            jobs.slice(0, 4).map((job) => {
-                                const stats = getJobStats(job);
-                                const jobId = job._id || job.id;
-
-                                return (
-                                    <div
-                                        key={jobId}
-                                        className="recruiter-dashboard-job-card"
-                                    >
-                                        <div className="recruiter-dashboard-job-top">
-                                            <div className="recruiter-dashboard-job-heading">
-                                                <div className="recruiter-company-avatar">
-                                                    {job.company?.[0]?.toUpperCase() || 'S'}
-                                                </div>
-
-                                                <div>
-                                                    <h3>{job.title}</h3>
-                                                    <p>{job.company || 'Company'}</p>
-                                                </div>
-                                            </div>
-
-                                            <StatusPill
-                                                status={job.status || 'draft'}
-                                            />
-                                        </div>
-
-                                        <div className="recruiter-dashboard-job-stats">
-                                            <div>
-                                                <span>Applicants</span>
-                                                <strong>
-                                                    {stats.totalApplicants ?? 0}
-                                                </strong>
-                                            </div>
-
-                                            <div>
-                                                <span>Avg. match</span>
-                                                <strong>
-                                                    {stats.averageMatchScore ?? 0}%
-                                                </strong>
-                                            </div>
-                                        </div>
-
-                                        <button
-                                            type="button"
-                                            className="secondary-light-button recruiter-dashboard-manage-button"
-                                            onClick={() =>
-                                                navigate(`/recruiter/jobs/${jobId}`)
-                                            }
-                                        >
-                                            Manage job
-                                        </button>
-                                    </div>
-                                );
-                            })
-                        )}
-                    </div>
+                    )}
                 </div>
-            </section>
+
+                <div className="pro-card" style={{ padding: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, paddingBottom: 12, borderBottom: '1px solid #f1f5f9', marginBottom: 12 }}>
+                        <div><div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.1em', color: '#64748b' }}>YOUR OPENINGS</div><h3 style={{ margin: '4px 0 0', fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Active jobs</h3></div><span style={{ padding: '6px 10px', borderRadius: 999, background: '#f8fafc', border: '1px solid #e2e8f0', fontSize: 11, fontWeight: 600 }}>{jobs.length} total</span>
+                    </div>
+                    {jobs.length === 0 ? <div style={{ textAlign: 'center', padding: 32 }}><div style={{ fontWeight: 600, color: '#0f172a' }}>No jobs yet</div><div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Create your first opening to start receiving applicants.</div></div> : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {jobs.slice(0, 5).map(job => (
+                                <div key={job._id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
+                                    <div style={{ width: 36, height: 36, borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0', display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800, color: '#0f172a' }}>{job.title?.[0]?.toUpperCase() || 'J'}</div>
+                                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{job.title}</div><div style={{ fontSize: 11, color: '#94a3b8' }}>{job.location || 'Remote'} • {job.status}</div></div>
+                                    <button onClick={() => navigate(`/recruiter/jobs/${job._id}`)} style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #e2e8f0', background: '#fff', fontWeight: 600, fontSize: 11, cursor: 'pointer' }}>Manage</button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+            <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
         </WorkspaceShell>
     );
 }
-
-function getInitials(name = '') {
-    return (
-        name
-            .split(' ')
-            .filter(Boolean)
-            .slice(0, 2)
-            .map((part) => part[0])
-            .join('')
-            .toUpperCase() || 'SR'
-    );
-}
-
-function PipelineStage({ label, value, total, icon }) {
-    const percentage =
-        total > 0 ? Math.min(100, (value / total) * 100) : 0;
-
-    return (
-        <div className="recruiter-pipeline-stage">
-            <div className="recruiter-pipeline-stage-top">
-                <span>{label}</span>
-                <strong>{icon}</strong>
-            </div>
-
-            <p>{value}</p>
-
-            <div className="recruiter-pipeline-bar">
-                <span style={{ width: `${percentage}%` }} />
-            </div>
-
-            <small>
-                {total > 0
-                    ? `${Math.round(percentage)}% of applicants`
-                    : 'No applicants'}
-            </small>
-        </div>
-    );
-}
-
 export default RecruiterDashboard;
